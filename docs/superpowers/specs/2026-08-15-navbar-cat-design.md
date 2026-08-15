@@ -16,9 +16,10 @@ the whole shell session.
 | Question | Decision |
 |---|---|
 | Scope | Roams the whole bar, and reacts to system events |
-| Art | Vendored oneko sprites (`neko` set only) |
+| Art | Vendored oneko sprites — `neko`, later also `tora` and `dog` |
 | Pointer | Chases the cursor, and is pettable |
 | Reactions | Idle→sleep, music→bob, charging→nap, workspace→scamper |
+| Sleep spot | Wherever the cat is — no fixed nap position (revised) |
 | Landmarks | Section aiming (left/centre/right thirds), no perch widgets |
 | Size | 16 logical px, inside the bar, never overlapping windows |
 
@@ -58,9 +59,10 @@ PKGBUILD checksum) was downloaded and inspected.
 **Important carve-out:** `oneko.man` reserves rights on specific character
 sets shipped in the same tarball — the BSD Daemon is "Copyright 1988 by
 Marshall Kirk McKusick. All Rights Reserved", and Sakura/Tomoyo are CLAMP
-characters used by permission. **We vendor only `bitmaps/neko/` and
-`bitmasks/neko/`** — the original public-domain cat. `bsd`, `sakura`,
-`tomoyo`, `dog`, and `tora` are excluded from this repo.
+characters used by permission. **`bsd`, `sakura`, and `tomoyo` are excluded
+from this repo.** The first version vendored only `neko`; `tora` and `dog`
+were added in the second round — neither carries a rights claim, so both fall
+under the package's Public Domain declaration.
 
 **2. Cursor position — RESOLVED, cheaper than expected.**
 Quickshell exposes no cursor position (no match for `cursorpos` anywhere in
@@ -89,8 +91,8 @@ feel and reduces region commits to a couple per minute.
 Cat.qml           panel entry: PanelWindow, mask, monitor + bar tracking
 CatSprite.qml     frame selection, sheet choice by DPR, two-tone tinting
 Brain.js          pure behaviour core — no QML, no side effects, tested
-assets/cat16.png  reduced sheet (used when 16 device px or fewer)
-assets/cat32.png  native sheet (used on scaled/HiDPI outputs)
+assets/<char>16-{fill,ink}.png  reduced sheets (<=16 device px)
+assets/<char>32-{fill,ink}.png  native sheets (scaled/HiDPI outputs)
 bin/navbar-cat-cursor   cursor sampler daemon
 tools/build-sprites.py  XBM -> spritesheets (dev only; output committed)
 test/brain.test.mjs     fake-clock tests of the priority ladder
@@ -104,7 +106,7 @@ Priority ladder, first match wins:
 | 1 | Recently petted | Sit and purr, hold position |
 | 2 | Pointer over the bar | Run to it, then sit and wait |
 | 3 | Workspace switched | Scamper in the switch direction |
-| 4 | On AC power | Drift to right third, curl up |
+| 4 | On AC power | Get drowsy and curl up where it stands (revised) |
 | 5 | Music playing | Drift to centre, bob |
 | 6 | No pointer movement for `sleepAfter` | Sleep in place |
 | 7 | Nothing | Wander with pauses |
@@ -125,15 +127,17 @@ alpha-only sheets stacked and tinted: fill in `Color.bar.text`, ink in
 cat, themed. The 16px sheet is reduced with an **ink-if-any** 2×2 rule,
 chosen over a majority rule because majority breaks the 1px outlines apart
 and the cat stops reading as a cat. Sheet choice is by device pixel ratio:
-`cat16.png` when the cat occupies ≤16 device px, else `cat32.png`.
+`<character>16-*.png` when the cat occupies ≤16 device px, else
+`<character>32-*.png`.
 
 ## Configuration
 
 Inline on the `plugins[]` entry in `~/.config/omarchy/shell.json`:
 
 ```json
-{ "id": "sam.navbar-cat", "speed": 1.0, "pettable": true,
-  "chaseCursor": true, "sleepAfter": 180, "monitor": "focused",
+{ "id": "sam.navbar-cat", "character": "neko", "speed": 1.0, "size": 16,
+  "pettable": true, "chaseCursor": true, "pounce": true,
+  "sleepAfter": 180, "stirEvery": 150, "stirFor": 25, "monitor": "focused",
   "reactions": { "music": true, "charging": true, "workspace": true } }
 ```
 
@@ -224,6 +228,21 @@ the charger. A charging cat booked a wake-up, woke, immediately re-evaluated to
 that looked exactly like nothing happening. The stir now sits above every rung
 that can end in sleep and is keyed off `want.sleepy`, so it covers any future
 sleepy rung too. There is a regression test.
+
+## Third round — sleeping anywhere
+
+The charging rung originally walked the cat to the right third of the bar to
+"nap by the power widget". Watching it run showed two problems: the cat always
+slept in the same place, and a cat that had stirred and wandered off would walk
+all the way back to that spot before settling — the stir looked pointless.
+
+Charging now only makes the cat drowsy; it sleeps where it stands. The cat is
+also given a random starting position, because on a permanently-plugged-in
+machine it settles immediately and would otherwise doze off in the left corner
+every session.
+
+This removes the last of the section-aiming fudge from the sleep behaviours.
+Only the music reaction still aims at a position (the middle of the bar).
 
 ## Out of scope
 

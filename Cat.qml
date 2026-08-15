@@ -265,12 +265,23 @@ Item {
     onTriggered: root.animTick = (root.animTick + 1) & 0xff
   }
 
+  property bool _placed: false
+
   function step() {
     if (!catScreen || barLength <= 0) return
 
     var now = Date.now()
     var maxPos = Math.max(0, barLength - catSize)
     var onBar = pointerOnBar()
+
+    // Drop the cat somewhere arbitrary the first time we know how long the bar
+    // is. Starting at zero every session meant that on a machine left plugged
+    // in — where the cat settles straight away — it always dozed off in the
+    // same left-hand corner.
+    if (!_placed) {
+      _placed = true
+      catPos = Math.random() * maxPos
+    }
 
     var decision = Brain.decide({
       now: now,

@@ -20,7 +20,7 @@ asleep.
 |---|---|
 | You move the pointer onto the bar | runs to it, then **pounces** at it |
 | You switch workspace | scampers in the direction you switched |
-| You plug in the charger | drifts to the right of the bar and naps |
+| You plug in the charger | gets drowsy and naps where it is |
 | Something is playing | drifts to the centre and bobs |
 | You leave for a few minutes | settles down and falls asleep |
 | It has been asleep a while | gets up, potters about, and settles again |
@@ -145,10 +145,11 @@ absurd price for a cat. `bin/navbar-cat-cursor` makes the same request straight
 to the Hyprland socket for ~0.03ms, which is 285× cheaper and the reason this
 feature exists at all.
 
-**The cat aims at thirds of the bar, not at widgets.** Nothing in the bar
-exposes widget geometry, so "naps by the power icon" really means "settles in
-the right third of the bar". On an unusual layout it will look slightly off,
-and that is why.
+**The cat does not know where your widgets are.** Nothing in the bar exposes
+widget geometry, so the cat cannot line itself up with a particular icon. Only
+the music reaction uses position at all, and it aims at the middle of the bar
+rather than at the media widget. Everything else happens wherever the cat
+happens to be.
 
 ## Sprites and licence
 

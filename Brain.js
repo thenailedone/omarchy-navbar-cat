@@ -171,14 +171,18 @@ function intent(input, state) {
     return { reason: "stir", target: state.wanderTarget, gait: "walk", rest: "chain" }
   }
 
-  // 4. On AC power — settle down in the right third, near where the power
-  //    widget conventionally sits. Section aiming: the bar exposes no widget
-  //    geometry, so this is a third of the bar, not an exact icon.
+  // 4. On AC power — get drowsy, and sleep wherever it happens to be.
+  //
+  //    This used to march the cat to the right third of the bar, on the theory
+  //    that it was napping by the power widget. In practice it meant the cat
+  //    always slept in the same spot, and worse, that a cat which had stirred
+  //    and wandered off would trudge all the way back before settling. Cats
+  //    sleep where they are.
   if (reactions.charging !== false && input.charging) {
     return {
       reason: "charging",
-      target: input.barLength * (5 / 6) - input.catSize / 2,
-      gait: "walk",
+      target: input.x,
+      gait: "idle",
       rest: "chain",
       sleepy: true,
     }

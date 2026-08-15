@@ -146,10 +146,16 @@ test("rung 5: music is ignored when its reaction is switched off", () => {
   assert.equal(out.reason, "wander");
 });
 
-test("rung 4: charging drifts the cat into the right third", () => {
-  const out = decide({ charging: true, x: 100 });
-  assert.equal(out.reason, "charging");
-  assert.ok(out.target > (BAR * 2) / 3, `expected right third, got ${out.target}`);
+test("rung 4: charging makes the cat sleepy where it stands", () => {
+  // It used to be marched to the right third to "nap by the power widget".
+  // A cat sleeps where it is, and being summoned to a fixed spot meant it
+  // always slept in the same place and trudged back there after every stir.
+  for (const x of [40, 500, BAR - CAT]) {
+    const out = decide({ charging: true, x });
+    assert.equal(out.reason, "charging");
+    assert.equal(out.target, x, "charging should not relocate the cat");
+    assert.equal(out.gait, "idle");
+  }
 });
 
 test("rung 4: charging outranks music", () => {
@@ -157,23 +163,19 @@ test("rung 4: charging outranks music", () => {
   assert.equal(out.reason, "charging");
 });
 
-test("rung 4: a charging cat eventually naps", () => {
+test("rung 4: a charging cat eventually naps, right where it was", () => {
   const chainTotal = Brain.CHAIN.reduce(
     (sum, step) => sum + (Number.isFinite(step.ms) ? step.ms : 0),
     0,
   );
-  // Walk there, arrive, then let the settling chain run its course. The cat
-  // has to actually get there first — the nap is timed from arrival, not from
-  // the moment the charger went in.
   let out = decide({ charging: true, x: 100 });
-  assert.equal(out.gait, "walk");
-  out = Brain.decide(input({ charging: true, x: out.target }), out.state);
   assert.equal(out.pose, "stop", "settles before it sleeps");
   out = Brain.decide(
-    input({ charging: true, x: out.target, now: 10_000 + chainTotal + 2000 }),
+    input({ charging: true, x: 100, now: 10_000 + chainTotal + 2000 }),
     out.state,
   );
   assert.equal(out.pose, "sleep");
+  assert.equal(out.target, 100, "and sleeps where it already was");
 });
 
 test("rung 3: a workspace switch scampers the cat that way", () => {
@@ -432,9 +434,8 @@ test("stir: a cat asleep on the charger stirs too, not just an idle one", () => 
     0,
   );
   let out = decide({ charging: true, x: 100 });
-  out = Brain.decide(input({ charging: true, x: out.target }), out.state);
   out = Brain.decide(
-    input({ charging: true, x: out.target, now: 10_000 + chainTotal + 2000 }),
+    input({ charging: true, x: 100, now: 10_000 + chainTotal + 2000 }),
     out.state,
   );
   assert.equal(out.pose, "sleep");
@@ -443,12 +444,44 @@ test("stir: a cat asleep on the charger stirs too, not just an idle one", () => 
   const stirred = Brain.decide(
     input({
       charging: true,
-      x: out.target,
+      x: 100,
       now: 10_000 + chainTotal + 2000 + out.wakeIn + 10,
     }),
     out.state,
   );
   assert.equal(stirred.reason, "stir");
+});
+
+test("stir: after pottering about it settles wherever it ended up", () => {
+  // The point of letting it sleep anywhere: having stirred and wandered off,
+  // the cat must not walk all the way back to where it slept before.
+  const chainTotal = Brain.CHAIN.reduce(
+    (sum, s) => sum + (Number.isFinite(s.ms) ? s.ms : 0),
+    0,
+  );
+  let out = decide({ charging: true, x: 100 });
+  out = Brain.decide(
+    input({ charging: true, x: 100, now: 10_000 + chainTotal + 2000 }),
+    out.state,
+  );
+  let now = 10_000 + chainTotal + 2000 + out.wakeIn + 10;
+
+  const stirred = Brain.decide(input({ charging: true, x: 100, now }), out.state);
+  assert.equal(stirred.reason, "stir");
+  const wanderedTo = stirred.target;
+  assert.notEqual(wanderedTo, 100, "it should have somewhere new in mind");
+
+  // Let the stir run out while standing at the new spot.
+  now += 25_000 + 1000;
+  const settling = Brain.decide(
+    input({ charging: true, x: wanderedTo, now }),
+    stirred.state,
+  );
+  assert.equal(settling.reason, "charging");
+  assert.equal(
+    settling.target, wanderedTo,
+    "it should settle where it wandered to, not march back",
+  );
 });
 
 test("stir: waking for a real reason clears the stir schedule", () => {
