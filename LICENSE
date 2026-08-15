@@ -22,6 +22,6 @@ SOFTWARE.
 
 ---
 
-The cat sprites in assets/ and vendor/oneko-neko/ are NOT covered by the above.
+The cat sprites in assets/ and vendor/oneko/ are NOT covered by the above.
 They are the public-domain `neko` artwork from oneko by Masayuki Koba.
-See vendor/oneko-neko/PROVENANCE.md.
+See vendor/oneko/PROVENANCE.md.

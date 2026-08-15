@@ -18,16 +18,27 @@ asleep.
 
 | When | The cat |
 |---|---|
-| You move the pointer onto the bar | runs to it, then sits and waits |
+| You move the pointer onto the bar | runs to it, then **pounces** at it |
 | You switch workspace | scampers in the direction you switched |
 | You plug in the charger | drifts to the right of the bar and naps |
 | Something is playing | drifts to the centre and bobs |
 | You leave for a few minutes | settles down and falls asleep |
+| It has been asleep a while | gets up, potters about, and settles again |
 | Nothing in particular | wanders, with pauses |
-| You click it | sits and looks pleased |
+| You click it | looks up at you, then grooms |
 
 It walks the long way round on vertical bars too, and claws at the ends of the
 bar when it wants to keep going and can't.
+
+## Characters
+
+Three sprite sets ship, all from oneko and all with the same 32 frames:
+
+| `character` | |
+|---|---|
+| `neko` (default) | the original cat |
+| `tora` | tiger-striped cat — the stripes take your theme's ink colour |
+| `dog` | a dog, for people who are wrong about cats |
 
 ## Install
 
@@ -53,11 +64,15 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
   "plugins": [
     {
       "id": "sam.navbar-cat",
+      "character": "neko",
       "speed": 1.0,
       "size": 16,
       "pettable": true,
       "chaseCursor": true,
+      "pounce": true,
       "sleepAfter": 180,
+      "stirEvery": 150,
+      "stirFor": 25,
       "monitor": "focused",
       "reactions": { "music": true, "charging": true, "workspace": true }
     }
@@ -67,13 +82,31 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
 
 | Key | Default | Meaning |
 |---|---|---|
+| `character` | `"neko"` | `neko`, `tora`, or `dog` |
 | `speed` | `1.0` | Multiplier on walking and running pace |
 | `size` | `16` | Cat height in logical pixels |
 | `pettable` | `true` | Whether the cat can be clicked |
 | `chaseCursor` | `true` | Whether the cat comes when you visit the bar |
+| `pounce` | `true` | Whether it leaps at the pointer (see below) |
 | `sleepAfter` | `180` | Seconds of pointer stillness before it sleeps |
+| `stirEvery` | `150` | Roughly how often a sleeping cat gets up, in seconds |
+| `stirFor` | `25` | How long it potters about before settling again |
 | `monitor` | `"focused"` | `"focused"` to follow you, or an output name to pin it |
 | `reactions` | all on | Individually disable the music, charging, or workspace reactions |
+
+### About the pounce
+
+When the cat catches up with your pointer it leaps at it, arcing out of the bar
+and back. This is the one behaviour that draws outside the bar: the overlay is
+grown by half a cat's height so there is somewhere to leap into, and for those
+600ms the cat is painted over whatever is behind the bar.
+
+The extra strip is transparent and carries no input region, so it changes
+nothing else — but if you want the cat strictly confined to the bar, set
+`pounce: false` and the window shrinks back to exactly the bar's height.
+
+It leaps *into* the screen whichever edge your bar is docked to, so on a bottom
+bar it jumps up rather than off the screen.
 
 ## Does it get in the way?
 
@@ -119,10 +152,11 @@ and that is why.
 
 ## Sprites and licence
 
-The plugin's own code is MIT. The sprites are the **public-domain** `neko` cat
-from oneko 1.2.sakura.5 — see [`vendor/oneko-neko/PROVENANCE.md`](vendor/oneko-neko/PROVENANCE.md)
-for the exact source and checksum.
+The plugin's own code is MIT. The sprites are the **public-domain** `neko`,
+`tora`, and `dog` sets from oneko 1.2.sakura.5 — see
+[`vendor/oneko/PROVENANCE.md`](vendor/oneko/PROVENANCE.md) for the exact source
+and checksum.
 
 oneko's tarball also ships character sets that are **not** free — the BSD
 Daemon is Marshall Kirk McKusick's, and Sakura and Tomoyo are CLAMP characters.
-None of those are vendored here. Only the original cat is.
+None of those are vendored here.

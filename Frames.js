@@ -38,6 +38,8 @@ var INDEX = {
   "rtogi2": 31
 }
 
+var CHARACTERS = ["dog", "neko", "tora"]
+
 var POSES = {
   "stop": [
     0,

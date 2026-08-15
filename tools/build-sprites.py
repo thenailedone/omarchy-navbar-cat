@@ -31,10 +31,25 @@ from pathlib import Path
 from PIL import Image
 
 REPO = Path(__file__).resolve().parent.parent
-VENDOR = REPO / "vendor" / "oneko-neko"
+VENDOR = REPO / "vendor" / "oneko"
 ASSETS = REPO / "assets"
 
 SIZE = 32
+
+# The characters we ship, and where each one's pixels come from.
+#
+# `suffix` is oneko's own file-naming (`mati2_tora.xbm`). `masks` names the set
+# to take masks from: tora ships 32 bitmaps and no masks at all, because oneko
+# reuses the neko masks for it (oneko.c:157 passes mati2_mask_bits for both the
+# neko and tora columns). We do the same rather than inventing silhouettes.
+#
+# Only these three are shipped. oneko's tarball also carries `bsd`, `sakura`,
+# and `tomoyo`, whose rights are reserved — see vendor/oneko/PROVENANCE.md.
+CHARACTERS = {
+    "neko": {"suffix": "", "masks": "neko", "mask_suffix": ""},
+    "tora": {"suffix": "_tora", "masks": "neko", "mask_suffix": ""},
+    "dog": {"suffix": "_dog", "masks": "dog", "mask_suffix": "_dog"},
+}
 
 # Every frame in the neko set, in sheet order. The index of a name here is its
 # frame index in the generated sheets.
@@ -84,10 +99,13 @@ def read_xbm(path):
     ]
 
 
-def load_frame(name):
-    """Return (mask, ink) grids for one frame."""
-    image = read_xbm(VENDOR / "bitmaps" / f"{name}.xbm")
-    mask = read_xbm(VENDOR / "bitmasks" / f"{name}_mask.xbm")
+def load_frame(character, name):
+    """Return (mask, ink) grids for one frame of one character."""
+    spec = CHARACTERS[character]
+    image = read_xbm(VENDOR / "bitmaps" / character / f"{name}{spec['suffix']}.xbm")
+    mask = read_xbm(
+        VENDOR / "bitmasks" / spec["masks"] / f"{name}{spec['mask_suffix']}_mask.xbm"
+    )
     # Ink only counts where the mask lets it show; oneko clips the image by the
     # mask when it blits, and some frames have stray image bits outside it.
     ink = [[image[y][x] & mask[y][x] for x in range(SIZE)] for y in range(SIZE)]
@@ -119,19 +137,24 @@ def write_sheet(path, grids, cell):
 
 
 def main():
-    missing = [n for n in FRAMES if not (VENDOR / "bitmaps" / f"{n}.xbm").exists()]
-    if missing:
-        sys.exit(f"missing vendored frames: {', '.join(missing)}")
-
     ASSETS.mkdir(exist_ok=True)
-    loaded = [load_frame(name) for name in FRAMES]
+    written = []
 
-    written = [
-        write_sheet(ASSETS / "cat32-fill.png", [m for m, _ in loaded], 32),
-        write_sheet(ASSETS / "cat32-ink.png", [i for _, i in loaded], 32),
-        write_sheet(ASSETS / "cat16-fill.png", [halve(m) for m, _ in loaded], 16),
-        write_sheet(ASSETS / "cat16-ink.png", [halve(i) for _, i in loaded], 16),
-    ]
+    for character, spec in CHARACTERS.items():
+        missing = [
+            n for n in FRAMES
+            if not (VENDOR / "bitmaps" / character / f"{n}{spec['suffix']}.xbm").exists()
+        ]
+        if missing:
+            sys.exit(f"{character}: missing vendored frames: {', '.join(missing)}")
+
+        loaded = [load_frame(character, name) for name in FRAMES]
+        written += [
+            write_sheet(ASSETS / f"{character}32-fill.png", [m for m, _ in loaded], 32),
+            write_sheet(ASSETS / f"{character}32-ink.png", [i for _, i in loaded], 32),
+            write_sheet(ASSETS / f"{character}16-fill.png", [halve(m) for m, _ in loaded], 16),
+            write_sheet(ASSETS / f"{character}16-ink.png", [halve(i) for _, i in loaded], 16),
+        ]
 
     # The frame/pose tables are generated rather than hand-maintained so the
     # sheet and the QML can never disagree about what frame 17 is.
@@ -139,6 +162,7 @@ def main():
         "cell": SIZE,
         "count": len(FRAMES),
         "index": {name: i for i, name in enumerate(FRAMES)},
+        "characters": sorted(CHARACTERS),
         "poses": {
             pose: [FRAMES.index(a), FRAMES.index(b)] for pose, (a, b) in POSES.items()
         },
@@ -150,6 +174,7 @@ def main():
         f"var CELL = {SIZE}\n"
         f"var COUNT = {len(FRAMES)}\n"
         f"var INDEX = {json.dumps(table['index'], indent=2)}\n\n"
+        f"var CHARACTERS = {json.dumps(table['characters'])}\n\n"
         f"var POSES = {json.dumps(table['poses'], indent=2)}\n"
     )
 

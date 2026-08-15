@@ -22,6 +22,9 @@ Item {
   property color fillColor: "white"
   property color inkColor: "black"
   property string assetDir: ""
+  // Which sprite set to draw. Every character shares the same 32-frame layout,
+  // so switching is purely a change of source sheet.
+  property string character: "neko"
   // Device pixels this sprite actually occupies, which decides which sheet is
   // the better source.
   property real devicePixels: width
@@ -77,7 +80,7 @@ Item {
       // "/cat32-fill.png" resolves against the filesystem root and warns.
       source: root.assetDir === ""
         ? ""
-        : root.assetDir + "/cat" + root.cell + "-" + sheetLayer.sheet + ".png"
+        : root.assetDir + "/" + root.character + root.cell + "-" + sheetLayer.sheet + ".png"
       width: root.width * Frames.COUNT
       height: root.height
       x: -root.frame * root.width

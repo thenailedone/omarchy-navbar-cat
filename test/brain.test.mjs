@@ -14,8 +14,32 @@ import { dirname, join } from "node:path";
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(REPO, "Brain.js"), "utf8");
 const Brain = new Function(
-  `${source}\nreturn { decide, freshState, CHAIN, PET_MS, PET_PERK_MS, AWAKE_MS, SCAMPER_MS };`,
+  `${source}\nreturn { decide, freshState, CHAIN, PET_MS, PET_PERK_MS, AWAKE_MS,`
+    + ` SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS };`,
 )();
+
+const DIAGONALS = new Set(["upleft", "upright", "dwleft", "dwright"]);
+
+// Drive the cat all the way down to sleep from a fresh state, and hand back the
+// decision and the clock reading at that moment. Several tests need a genuinely
+// sleeping cat as their starting point.
+function sleepingCat(overrides = {}) {
+  const chainTotal = Brain.CHAIN.reduce(
+    (sum, step) => sum + (Number.isFinite(step.ms) ? step.ms : 0),
+    0,
+  );
+  const start = 300_000;
+  let out = Brain.decide(
+    input({ now: start, lastPointerMoveAt: 10_000, x: 500, ...overrides }),
+    Brain.freshState(),
+  );
+  const asleepAt = start + chainTotal + 1000;
+  out = Brain.decide(
+    input({ now: asleepAt, lastPointerMoveAt: 10_000, x: out.target, ...overrides }),
+    out.state,
+  );
+  return { out, asleepAt, chainTotal };
+}
 
 const BAR = 1000;
 const CAT = 16;
@@ -181,7 +205,13 @@ test("rung 2: the cat runs to a pointer on the bar", () => {
 });
 
 test("rung 2: having reached the pointer, the cat sits and waits", () => {
-  const out = decide({ pointer: { onBar: true, pos: 500 }, x: 500 - CAT / 2 });
+  // Pounce off: arriving at the pointer is also the pounce trigger, and this
+  // test is about what the cat does once it has landed and settled.
+  const out = decide({
+    pointer: { onBar: true, pos: 500 },
+    x: 500 - CAT / 2,
+    config: { ...input().config, pounce: false },
+  });
   assert.equal(out.reason, "chase");
   assert.equal(out.gait, "idle");
   assert.equal(out.pose, "stop", "a waiting cat should not fall asleep on the job");
@@ -269,13 +299,15 @@ test("waking: a sleeping cat plays its awake frame before it moves", () => {
 });
 
 test("edges: a cat that wants to walk past the end claws at it instead", () => {
+  const noPounce = { ...input().config, pounce: false };
   const out = decide({
     pointer: { onBar: true, pos: BAR + 200 },
     x: BAR - CAT,
+    config: noPounce,
   });
   assert.equal(out.pose, "rtogi");
 
-  const left = decide({ pointer: { onBar: true, pos: -200 }, x: 0 });
+  const left = decide({ pointer: { onBar: true, pos: -200 }, x: 0, config: noPounce });
   assert.equal(left.pose, "ltogi");
 });
 
@@ -287,9 +319,14 @@ test("vertical bars: the cat uses up and down frames", () => {
 });
 
 test("vertical bars: edge clawing uses the top and bottom frames", () => {
-  const bottom = decide({ axis: "v", pointer: { onBar: true, pos: BAR + 200 }, x: BAR - CAT });
+  const noPounce = { ...input().config, pounce: false };
+  const bottom = decide({
+    axis: "v", pointer: { onBar: true, pos: BAR + 200 }, x: BAR - CAT, config: noPounce,
+  });
   assert.equal(bottom.pose, "dtogi");
-  const top = decide({ axis: "v", pointer: { onBar: true, pos: -200 }, x: 0 });
+  const top = decide({
+    axis: "v", pointer: { onBar: true, pos: -200 }, x: 0, config: noPounce,
+  });
   assert.equal(top.pose, "utogi");
 });
 
@@ -297,7 +334,11 @@ test("petting is only offered while the cat is settled", () => {
   const moving = decide({ pointer: { onBar: true, pos: 900 }, x: 100 });
   assert.equal(moving.pettable, false, "a walking cat must not hold an input region");
 
-  const settled = decide({ pointer: { onBar: true, pos: 500 }, x: 500 - CAT / 2 });
+  const settled = decide({
+    pointer: { onBar: true, pos: 500 },
+    x: 500 - CAT / 2,
+    config: { ...input().config, pounce: false },
+  });
   assert.equal(settled.pettable, true);
 });
 
@@ -305,7 +346,7 @@ test("petting is never offered when the user has switched it off", () => {
   const out = decide({
     pointer: { onBar: true, pos: 500 },
     x: 500 - CAT / 2,
-    config: { ...input().config, pettable: false },
+    config: { ...input().config, pettable: false, pounce: false },
   });
   assert.equal(out.pettable, false);
 });
@@ -335,6 +376,196 @@ test("the cat never targets a position that would hang off the bar", () => {
 test("a bar too narrow for the cat does not produce a negative target", () => {
   const out = decide({ barLength: 10, x: 0 });
   assert.ok(out.target >= 0 && Number.isFinite(out.target), `got ${out.target}`);
+});
+
+// ------------------------------------------------------------------ stirring
+
+test("stir: a sleeping cat says when it next wants waking", () => {
+  const { out } = sleepingCat();
+  assert.equal(out.pose, "sleep");
+  assert.ok(out.wakeIn > 0, "a sleeping cat must ask to be woken, or it sleeps forever");
+});
+
+test("stir: the cat rouses itself after a while and wanders", () => {
+  const { out, asleepAt } = sleepingCat();
+  // Well past the longest possible randomised interval.
+  const later = asleepAt + out.wakeIn + 10;
+  const stirred = Brain.decide(
+    input({ now: later, lastPointerMoveAt: 10_000, x: out.target }),
+    out.state,
+  );
+  assert.equal(stirred.reason, "stir");
+  assert.notEqual(stirred.pose, "sleep", "it should be up and about");
+});
+
+test("stir: having pottered about, it goes back to sleep", () => {
+  const { out, asleepAt, chainTotal } = sleepingCat();
+  let state = out.state;
+  let now = asleepAt + out.wakeIn + 10;
+
+  let stirred = Brain.decide(input({ now, lastPointerMoveAt: 10_000, x: out.target }), state);
+  assert.equal(stirred.reason, "stir");
+
+  // Run past the whole stir window, standing where it was asked to go.
+  now += 25_000 + 1000;
+  let back = Brain.decide(
+    input({ now, lastPointerMoveAt: 10_000, x: stirred.target }),
+    stirred.state,
+  );
+  assert.equal(back.reason, "idle-sleep", "the stir should expire back into sleeping");
+
+  // And then settle all the way down again.
+  now += chainTotal + 1000;
+  const asleepAgain = Brain.decide(
+    input({ now, lastPointerMoveAt: 10_000, x: back.target }),
+    back.state,
+  );
+  assert.equal(asleepAgain.pose, "sleep");
+});
+
+test("stir: a cat asleep on the charger stirs too, not just an idle one", () => {
+  // Regression: the stir originally lived inside the idle-sleep rung, so a cat
+  // that had nodded off on AC power booked a wake-up and then went straight
+  // back to sleep without ever getting up.
+  const chainTotal = Brain.CHAIN.reduce(
+    (sum, s) => sum + (Number.isFinite(s.ms) ? s.ms : 0),
+    0,
+  );
+  let out = decide({ charging: true, x: 100 });
+  out = Brain.decide(input({ charging: true, x: out.target }), out.state);
+  out = Brain.decide(
+    input({ charging: true, x: out.target, now: 10_000 + chainTotal + 2000 }),
+    out.state,
+  );
+  assert.equal(out.pose, "sleep");
+  assert.ok(out.wakeIn > 0, "a charging cat should book its own stir");
+
+  const stirred = Brain.decide(
+    input({
+      charging: true,
+      x: out.target,
+      now: 10_000 + chainTotal + 2000 + out.wakeIn + 10,
+    }),
+    out.state,
+  );
+  assert.equal(stirred.reason, "stir");
+});
+
+test("stir: waking for a real reason clears the stir schedule", () => {
+  const { out, asleepAt } = sleepingCat();
+  const chased = Brain.decide(
+    input({ now: asleepAt + 50, pointer: { onBar: true, pos: 100 }, x: out.target }),
+    out.state,
+  );
+  assert.equal(chased.wakeIn, 0, "an awake cat has no pending self-wake");
+});
+
+// ------------------------------------------------------------------- pouncing
+
+test("pounce: catching up with the pointer triggers a pounce", () => {
+  const settled = decide({ pointer: { onBar: true, pos: 500 }, x: 300 });
+  // Walk it in so the cat has a direction, then arrive.
+  const arriving = Brain.decide(
+    input({ pointer: { onBar: true, pos: 500 }, x: 492 }),
+    settled.state,
+  );
+  assert.equal(arriving.reason, "pounce");
+  assert.ok(DIAGONALS.has(arriving.pose), `expected a diagonal frame, got ${arriving.pose}`);
+});
+
+test("pounce: the arc lifts off and lands", () => {
+  const start = decide({ pointer: { onBar: true, pos: 500 }, x: 300 });
+  let out = Brain.decide(input({ pointer: { onBar: true, pos: 500 }, x: 492 }), start.state);
+  const lifts = [out.lift];
+  for (const at of [0.25, 0.5, 0.75]) {
+    out = Brain.decide(
+      input({ now: 10_000 + Brain.POUNCE_MS * at, pointer: { onBar: true, pos: 500 }, x: 492 }),
+      out.state,
+    );
+    lifts.push(out.lift);
+  }
+  assert.ok(lifts[2] > lifts[0], "should be higher mid-pounce than at the start");
+  assert.ok(lifts[2] >= lifts[3], "and coming back down by the end");
+  assert.ok(Math.max(...lifts) <= 1.0001, "lift is normalised to 0..1");
+
+  const after = Brain.decide(
+    input({ now: 10_000 + Brain.POUNCE_MS + 50, pointer: { onBar: true, pos: 500 }, x: 492 }),
+    out.state,
+  );
+  assert.notEqual(after.reason, "pounce", "the pounce must end");
+  assert.equal(after.lift, 0);
+});
+
+test("pounce: it does not pounce again immediately", () => {
+  const start = decide({ pointer: { onBar: true, pos: 500 }, x: 300 });
+  let out = Brain.decide(input({ pointer: { onBar: true, pos: 500 }, x: 492 }), start.state);
+  out = Brain.decide(
+    input({ now: 10_000 + Brain.POUNCE_MS + 50, pointer: { onBar: true, pos: 500 }, x: 492 }),
+    out.state,
+  );
+  assert.notEqual(out.reason, "pounce");
+  const soon = Brain.decide(
+    input({ now: 10_000 + Brain.POUNCE_MS + 200, pointer: { onBar: true, pos: 500 }, x: 492 }),
+    out.state,
+  );
+  assert.notEqual(soon.reason, "pounce", "cooldown should hold it back");
+
+  const eventually = Brain.decide(
+    input({
+      now: 10_000 + Brain.POUNCE_MS + Brain.POUNCE_COOLDOWN_MS + 500,
+      pointer: { onBar: true, pos: 500 },
+      x: 492,
+    }),
+    soon.state,
+  );
+  assert.equal(eventually.reason, "pounce", "and then allow another");
+});
+
+test("pounce: switching it off keeps the cat on the ground", () => {
+  const config = { ...input().config, pounce: false };
+  const start = decide({ pointer: { onBar: true, pos: 500 }, x: 300, config });
+  const out = Brain.decide(
+    input({ pointer: { onBar: true, pos: 500 }, x: 492, config }),
+    start.state,
+  );
+  assert.notEqual(out.reason, "pounce");
+  assert.equal(out.lift, 0);
+});
+
+test("pounce: it leaps into the screen, whichever edge the bar is on", () => {
+  // On a top bar the cat must leap *downwards* — up is off the screen.
+  for (const [edge, axis, outward, back] of [
+    ["top", "h", ["dwleft", "dwright"], ["upleft", "upright"]],
+    ["bottom", "h", ["upleft", "upright"], ["dwleft", "dwright"]],
+    ["left", "v", ["dwright", "upright"], ["dwleft", "upleft"]],
+    ["right", "v", ["dwleft", "upleft"], ["dwright", "upright"]],
+  ]) {
+    const start = decide({ edge, axis, pointer: { onBar: true, pos: 500 }, x: 300 });
+    const out = Brain.decide(
+      input({ edge, axis, pointer: { onBar: true, pos: 500 }, x: 492 }),
+      start.state,
+    );
+    assert.equal(out.reason, "pounce", `${edge}: should pounce`);
+    assert.ok(
+      outward.includes(out.pose),
+      `${edge}: leaving the bar should be one of ${outward}, got ${out.pose}`,
+    );
+    const returning = Brain.decide(
+      input({ edge, axis, now: 10_000 + Brain.POUNCE_MS * 0.75, pointer: { onBar: true, pos: 500 }, x: 492 }),
+      out.state,
+    );
+    assert.ok(
+      back.includes(returning.pose),
+      `${edge}: returning should be one of ${back}, got ${returning.pose}`,
+    );
+  }
+});
+
+test("pounce: a pouncing cat cannot be clicked and needs ticks", () => {
+  const start = decide({ pointer: { onBar: true, pos: 500 }, x: 300 });
+  const out = Brain.decide(input({ pointer: { onBar: true, pos: 500 }, x: 492 }), start.state);
+  assert.equal(out.pettable, false);
+  assert.equal(out.idle, false);
 });
 
 test("the sleeping cat reports that it needs no ticks", () => {

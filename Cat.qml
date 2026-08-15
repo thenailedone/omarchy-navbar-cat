@@ -19,6 +19,7 @@ import Quickshell.Services.Mpris
 import Quickshell.Services.UPower
 import qs.Commons
 import "Brain.js" as Brain
+import "Frames.js" as Frames
 
 Item {
   id: root
@@ -68,6 +69,21 @@ Item {
   readonly property var reactions: config.reactions && typeof config.reactions === "object"
     ? config.reactions : ({})
   readonly property int catSize: Number(config.size) > 0 ? Number(config.size) : 16
+
+  // Unknown names fall back rather than leaving the cat invisible on a typo.
+  readonly property string character: {
+    var wanted = String(config.character || "neko")
+    return Frames.CHARACTERS.indexOf(wanted) !== -1 ? wanted : "neko"
+  }
+
+  readonly property bool pounce: config.pounce !== false
+  readonly property int stirEvery: Number(config.stirEvery) > 0 ? Number(config.stirEvery) : 150
+  readonly property int stirFor: Number(config.stirFor) > 0 ? Number(config.stirFor) : 25
+
+  // Room for the cat to leave the bar during a pounce. The window grows inward
+  // from the bar's own edge; the extra strip is fully transparent and carries
+  // no input region, so it costs nothing when the cat is on the ground.
+  readonly property int headroom: pounce ? Math.round(catSize * 1.5) : 0
 
   // ------------------------------------------------------------ bar state
 
@@ -156,6 +172,10 @@ Item {
   property string catPose: "stop"
   property bool catBob: false
   property bool catSettled: false
+  // 0 while on the bar, up to 1 at the top of a pounce.
+  property real catLift: 0
+  // Which way is "into the screen" from the bar's edge.
+  readonly property int inwardSign: (barPosition === "top" || barPosition === "left") ? 1 : -1
   property int animTick: 0
   property var brainState: Brain.freshState()
 
@@ -255,6 +275,7 @@ Item {
     var decision = Brain.decide({
       now: now,
       axis: vertical ? "v" : "h",
+      edge: barPosition,
       barLength: barLength,
       catSize: catSize,
       x: catPos,
@@ -268,6 +289,9 @@ Item {
         chaseCursor: chaseCursor,
         pettable: pettable,
         sleepAfter: sleepAfter,
+        pounce: pounce,
+        stirEvery: stirEvery,
+        stirFor: stirFor,
         reactions: reactions,
       },
     }, brainState)
@@ -277,18 +301,25 @@ Item {
     // Move toward the target at whatever pace the brain asked for. Positions
     // are rounded to whole logical pixels: pixel art on fractional offsets
     // shimmers as it moves.
-    var pixelsPerSecond = decision.gait === "run" ? 150 : (decision.gait === "walk" ? 55 : 0)
-    if (pixelsPerSecond > 0) {
-      var stepSize = pixelsPerSecond * speed * (tickMs / 1000)
-      var delta = decision.target - catPos
-      catPos = Math.abs(delta) <= stepSize
-        ? decision.target
-        : catPos + (delta > 0 ? stepSize : -stepSize)
+    if (decision.snap) {
+      // A pounce is an arc the brain describes exactly, frame by frame. Easing
+      // toward it the way we ease toward a walk target would flatten it.
+      catPos = decision.target
+    } else {
+      var pixelsPerSecond = decision.gait === "run" ? 150 : (decision.gait === "walk" ? 55 : 0)
+      if (pixelsPerSecond > 0) {
+        var stepSize = pixelsPerSecond * speed * (tickMs / 1000)
+        var delta = decision.target - catPos
+        catPos = Math.abs(delta) <= stepSize
+          ? decision.target
+          : catPos + (delta > 0 ? stepSize : -stepSize)
+      }
     }
     catPos = Math.max(0, Math.min(maxPos, catPos))
 
     catPose = decision.pose
     catBob = decision.bob
+    catLift = decision.lift
     catSettled = decision.gait === "idle"
 
     // Let a stale scamper expire so it cannot re-fire.
@@ -299,7 +330,20 @@ Item {
     if (decision.idle) {
       ticker.running = false
       animTick = 0
+      // The brain books its own next stir while it sleeps, so the body has to
+      // set an alarm. Without it the cat would sleep until you touched the
+      // mouse, which on an unattended machine is never.
+      if (decision.wakeIn > 0) {
+        stirAlarm.interval = Math.max(1000, Math.round(decision.wakeIn))
+        stirAlarm.restart()
+      }
     }
+  }
+
+  Timer {
+    id: stirAlarm
+    repeat: false
+    onTriggered: root.nudge()
   }
 
   onBarHiddenChanged: {
@@ -336,8 +380,22 @@ Item {
       left: root.barPosition !== "right"
       right: root.barPosition !== "left"
     }
-    implicitWidth: root.vertical ? root.barSize : 0
-    implicitHeight: root.vertical ? 0 : root.barSize
+    // The window covers the bar strip plus the pounce headroom, growing inward
+    // from the bar's edge. The extra strip is transparent and unmasked, so it
+    // changes nothing until the cat actually leaves the ground.
+    implicitWidth: root.vertical ? root.barSize + root.headroom : 0
+    implicitHeight: root.vertical ? 0 : root.barSize + root.headroom
+
+    // Where the middle of the bar strip sits inside this window. For a top or
+    // left bar that is simply half the bar in; for the far edges the headroom
+    // is on the near side, so it is measured back from the far end.
+    readonly property real stripCentre: root.vertical
+      ? (root.barPosition === "left" ? root.barSize / 2 : window.width - root.barSize / 2)
+      : (root.barPosition === "top" ? root.barSize / 2 : window.height - root.barSize / 2)
+
+    // How far off the bar the cat currently is, in pixels, signed so that
+    // positive is always *into* the screen.
+    readonly property real liftOffset: root.catLift * root.headroom * root.inwardSign
 
     // Click-through everywhere the cat is not. While it is walking the region
     // is empty, so a moving cat can never swallow a click meant for the bar;
@@ -356,18 +414,20 @@ Item {
       height: root.catSize
       devicePixels: root.catSize * (root.catScreen ? root.catScreen.devicePixelRatio : 1)
       assetDir: root.assetDir
+      character: root.character
 
       pose: root.catPose
       animTick: root.animTick
       fillColor: Color.bar.text
       inkColor: Color.bar.background
 
-      x: root.vertical
-        ? Math.round((window.width - width) / 2)
-        : Math.round(root.catPos)
-      y: root.vertical
-        ? Math.round(root.catPos)
-        : Math.round((window.height - height) / 2) + bobOffset
+      // Along the bar the cat sits where the brain put it; across the bar it
+      // rides the pounce arc out of the strip and back.
+      readonly property real crossPos:
+        window.stripCentre + window.liftOffset - height / 2 + bobOffset
+
+      x: root.vertical ? Math.round(crossPos) : Math.round(root.catPos)
+      y: root.vertical ? Math.round(root.catPos) : Math.round(crossPos)
 
       // A cat listening to music bobs; everything else sits still.
       property int bobOffset: root.catBob ? ((root.animTick & 1) ? -1 : 0) : 0

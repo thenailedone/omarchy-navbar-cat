@@ -192,6 +192,39 @@ Petting itself could not be driven from a script: this Hyprland exposes only
 `wtype` is keyboard-only. Hover was used as the proxy, since it exercises the
 same input-region path. The user confirmed clicking works by trying it.
 
+## Second round — characters, pounce, stirring
+
+Added after the first version was running.
+
+**Characters.** `neko`, `tora`, and `dog` all use the same 32-frame layout, so
+the whole feature is a `character:` key plus more sheets from the same build
+script. `tora` ships no masks — oneko reuses neko's for it (`oneko.c:157`), and
+so do we.
+
+**The pounce.** Four diagonal poses (8 frames, a quarter of the sheet) were
+defined but unreachable, because a cat on a 26px bar has no diagonal to walk.
+Arriving at the pointer now triggers a leap out of the bar and back, on a
+half-sine arc, with a 6s cooldown. This is the one behaviour that draws outside
+the bar: the overlay grows inward by `catSize * 1.5`. The extra strip is
+transparent and unmasked, and `pounce: false` shrinks the window back.
+
+The leap is always *into* the screen — down from a top bar, up from a bottom
+one — so `leapPose()` takes the bar's edge, not just the axis. Getting this
+wrong would send the cat off-screen on half of all bar positions.
+
+**Stirring.** A sleeping cat now books its own next wake-up, gets up, wanders,
+and settles again. The brain returns `wakeIn` alongside `idle` so the body can
+stop ticking and still set an alarm — without it, a cat on an unattended
+machine slept until someone touched the mouse, which is to say forever.
+
+*Bug caught by testing it live rather than only in unit tests:* the stir was
+first written inside the idle-sleep rung, but the cat can also fall asleep on
+the charger. A charging cat booked a wake-up, woke, immediately re-evaluated to
+"charging", and went straight back to sleep without ever getting up — a loop
+that looked exactly like nothing happening. The stir now sits above every rung
+that can end in sleep and is keyed off `want.sleepy`, so it covers any future
+sleepy rung too. There is a regression test.
+
 ## Out of scope
 
 Multiple cats, cats on more than one monitor at once, walking between
