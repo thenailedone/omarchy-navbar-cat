@@ -1,0 +1,386 @@
+// Navbar Cat — a cat that walks along the Omarchy bar.
+//
+// The plugin is a `kind: "panel"` with `keepLoaded: true`, so the shell mounts
+// it at startup (shell.qml:625) and it lives for the whole session. It draws a
+// transparent strip over the bar on WlrLayer.Overlay — the same layer the bar's
+// own drag ghost uses (Bar.qml:1167) — and is click-through everywhere except a
+// small box around the cat while it is sitting still.
+//
+// All of the cat's decision-making lives in Brain.js, which is pure and tested.
+// This file is the body: it gathers what is going on, hands a snapshot to the
+// brain each tick, and moves the sprite toward whatever the brain asked for.
+
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import Quickshell.Hyprland
+import Quickshell.Services.Mpris
+import Quickshell.Services.UPower
+import qs.Commons
+import "Brain.js" as Brain
+
+Item {
+  id: root
+
+  // Injected by the shell host (shell.qml:629-637).
+  property var shell: null
+  property var manifest: null
+  property string omarchyPath: ""
+
+  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "sam.navbar-cat"
+  readonly property string assetDir: {
+    var dir = manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
+    if (dir === "") return ""
+    return (dir.indexOf("file://") === 0 ? dir : "file://" + dir) + "/assets"
+  }
+  readonly property string helper: {
+    var dir = manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
+    if (dir === "") return ""
+    return dir.replace(/^file:\/\//, "") + "/bin/navbar-cat-cursor"
+  }
+
+  // The shell assigns `manifest` after the component is constructed, so every
+  // path derived from it is empty for the first moments of life. Nothing that
+  // touches the filesystem may start before this turns true, or the sprite
+  // tries to load `/cat32-fill.png` and the helper is launched as
+  // `/bin/navbar-cat-cursor`.
+  readonly property bool ready: assetDir !== "" && helper !== ""
+
+  // ---------------------------------------------------------------- config
+
+  // Settings live inline on this plugin's entry in shell.json's `plugins[]`,
+  // per the shell's storage rules.
+  readonly property var config: {
+    var settings = shell && shell.shellConfig ? shell.shellConfig.plugins : null
+    if (Array.isArray(settings)) {
+      for (var i = 0; i < settings.length; i++) {
+        if (settings[i] && String(settings[i].id || "") === root.pluginId) return settings[i]
+      }
+    }
+    return ({})
+  }
+
+  readonly property real speed: Number(config.speed) > 0 ? Number(config.speed) : 1.0
+  readonly property bool pettable: config.pettable !== false
+  readonly property bool chaseCursor: config.chaseCursor !== false
+  readonly property int sleepAfter: Number(config.sleepAfter) > 0 ? Number(config.sleepAfter) : 180
+  readonly property var reactions: config.reactions && typeof config.reactions === "object"
+    ? config.reactions : ({})
+  readonly property int catSize: Number(config.size) > 0 ? Number(config.size) : 16
+
+  // ------------------------------------------------------------ bar state
+
+  readonly property var bar: shell ? shell.bar : null
+  readonly property string barPosition: bar ? String(bar.position) : "top"
+  readonly property bool vertical: barPosition === "left" || barPosition === "right"
+  readonly property int barSize: bar && bar.barSize ? bar.barSize : 26
+  readonly property bool barHidden: bar ? bar.barHidden === true : false
+
+  // ------------------------------------------------------------- monitors
+
+  // One cat, on the output Hyprland has focused, so it follows you between
+  // screens rather than multiplying.
+  readonly property string pinnedMonitor: {
+    var wanted = String(config.monitor || "focused")
+    return wanted === "focused" ? "" : wanted
+  }
+  readonly property string wantedScreenName: {
+    if (pinnedMonitor !== "") return pinnedMonitor
+    var monitor = Hyprland.focusedMonitor
+    return monitor ? String(monitor.name || "") : ""
+  }
+  readonly property var catScreen: {
+    var screens = Quickshell.screens
+    if (!screens || screens.length === 0) return null
+    for (var i = 0; i < screens.length; i++) {
+      if (String(screens[i].name) === root.wantedScreenName) return screens[i]
+    }
+    return screens[0]
+  }
+
+  // --------------------------------------------------------- world inputs
+
+  property real pointerX: -1
+  property real pointerY: -1
+  property real lastPointerMoveAt: 0
+  property real pettedAt: -1
+  property var workspaceEvent: null
+
+  readonly property bool musicPlaying: {
+    if (reactions.music === false) return false
+    var players = Mpris.players ? Mpris.players.values : []
+    for (var i = 0; i < players.length; i++) {
+      if (players[i] && players[i].isPlaying) return true
+    }
+    return false
+  }
+
+  // A machine with no battery reports onBattery false forever, which would
+  // read as "permanently charging" and leave the cat asleep for good. Only
+  // count it as charging when there is actually a battery being charged.
+  readonly property bool charging: {
+    if (reactions.charging === false) return false
+    var device = UPower.displayDevice
+    return !!(device && device.isPresent && !UPower.onBattery)
+  }
+
+  // The pointer counts as "at the bar" inside the bar strip plus a small
+  // approach margin, so heading for the bar is enough to summon the cat.
+  readonly property int chaseMargin: 12
+
+  function pointerOnBar() {
+    if (!catScreen || pointerX < 0) return false
+    var sx = catScreen.x, sy = catScreen.y
+    var sw = catScreen.width, sh = catScreen.height
+    if (pointerX < sx || pointerX > sx + sw || pointerY < sy || pointerY > sy + sh) return false
+    var depth = barSize + chaseMargin
+    if (barPosition === "top") return pointerY - sy <= depth
+    if (barPosition === "bottom") return (sy + sh) - pointerY <= depth
+    if (barPosition === "left") return pointerX - sx <= depth
+    return (sx + sw) - pointerX <= depth
+  }
+
+  function pointerAlongBar() {
+    if (!catScreen) return 0
+    return vertical ? pointerY - catScreen.y : pointerX - catScreen.x
+  }
+
+  // ------------------------------------------------------------ cat state
+
+  readonly property real barLength: catScreen
+    ? (vertical ? catScreen.height : catScreen.width)
+    : 0
+
+  property real catPos: 0
+  property string catPose: "stop"
+  property bool catBob: false
+  property bool catSettled: false
+  property int animTick: 0
+  property var brainState: Brain.freshState()
+
+  readonly property bool maskActive: catSettled && root.pettable && !root.barHidden
+
+  // --------------------------------------------------------- cursor feed
+
+  // Hyprland has no cursor-move event and Quickshell exposes no pointer, so
+  // the position is sampled by a helper. See bin/navbar-cat-cursor for why it
+  // talks to the socket directly instead of shelling out to hyprctl.
+  Process {
+    id: cursorFeed
+    running: root.ready && root.chaseCursor && !root.barHidden
+    command: [root.helper]
+    stdinEnabled: true
+
+    stdout: SplitParser {
+      onRead: function (line) {
+        var parts = String(line).trim().split(/\s+/)
+        if (parts.length < 2) return
+        var x = parseInt(parts[0], 10)
+        var y = parseInt(parts[1], 10)
+        if (isNaN(x) || isNaN(y)) return
+        root.pointerX = x
+        root.pointerY = y
+        root.lastPointerMoveAt = Date.now()
+        root.nudge()
+      }
+    }
+  }
+
+  // A sleeping cat does not need the pointer ten times a second. Slowing the
+  // sampler down while it sleeps is most of the reason this costs nothing when
+  // the desktop is idle.
+  readonly property int cursorInterval: catPose === "sleep" ? 500 : 100
+  onCursorIntervalChanged: if (cursorFeed.running) cursorFeed.write(cursorInterval + "\n")
+
+  // ------------------------------------------------------- event sources
+
+  Connections {
+    target: Hyprland
+    function onFocusedWorkspaceChanged() {
+      var workspace = Hyprland.focusedWorkspace
+      if (!workspace) return
+      var id = Number(workspace.id)
+      if (root._lastWorkspaceId >= 0 && id !== root._lastWorkspaceId) {
+        root.workspaceEvent = { at: Date.now(), dir: id > root._lastWorkspaceId ? 1 : -1 }
+        root.nudge()
+      }
+      root._lastWorkspaceId = id
+    }
+  }
+  property int _lastWorkspaceId: -1
+
+  onMusicPlayingChanged: nudge()
+  onChargingChanged: nudge()
+  onBarPositionChanged: nudge()
+  onCatScreenChanged: nudge()
+
+  // ------------------------------------------------------------ the tick
+
+  // 30fps: fast enough that a running cat does not visibly stutter, slow
+  // enough to be free. The sprite's own frames advance far slower (below).
+  readonly property int tickMs: 33
+
+  function nudge() {
+    // Something happened that the cat might care about — make sure the loop is
+    // running to notice it.
+    if (!ticker.running && !barHidden) ticker.running = true
+  }
+
+  Timer {
+    id: ticker
+    interval: root.tickMs
+    repeat: true
+    running: false
+    onTriggered: root.step()
+  }
+
+  Timer {
+    id: animator
+    // oneko alternates its two frames far slower than the movement updates;
+    // matching that keeps the walk cycle looking hand-drawn rather than frantic.
+    interval: 150
+    repeat: true
+    running: ticker.running
+    onTriggered: root.animTick = (root.animTick + 1) & 0xff
+  }
+
+  function step() {
+    if (!catScreen || barLength <= 0) return
+
+    var now = Date.now()
+    var maxPos = Math.max(0, barLength - catSize)
+    var onBar = pointerOnBar()
+
+    var decision = Brain.decide({
+      now: now,
+      axis: vertical ? "v" : "h",
+      barLength: barLength,
+      catSize: catSize,
+      x: catPos,
+      pointer: onBar ? { onBar: true, pos: pointerAlongBar() } : null,
+      pettedAt: pettedAt >= 0 ? pettedAt : null,
+      lastPointerMoveAt: lastPointerMoveAt,
+      music: musicPlaying,
+      charging: charging,
+      workspaceEvent: workspaceEvent,
+      config: {
+        chaseCursor: chaseCursor,
+        pettable: pettable,
+        sleepAfter: sleepAfter,
+        reactions: reactions,
+      },
+    }, brainState)
+
+    brainState = decision.state
+
+    // Move toward the target at whatever pace the brain asked for. Positions
+    // are rounded to whole logical pixels: pixel art on fractional offsets
+    // shimmers as it moves.
+    var pixelsPerSecond = decision.gait === "run" ? 150 : (decision.gait === "walk" ? 55 : 0)
+    if (pixelsPerSecond > 0) {
+      var stepSize = pixelsPerSecond * speed * (tickMs / 1000)
+      var delta = decision.target - catPos
+      catPos = Math.abs(delta) <= stepSize
+        ? decision.target
+        : catPos + (delta > 0 ? stepSize : -stepSize)
+    }
+    catPos = Math.max(0, Math.min(maxPos, catPos))
+
+    catPose = decision.pose
+    catBob = decision.bob
+    catSettled = decision.gait === "idle"
+
+    // Let a stale scamper expire so it cannot re-fire.
+    if (workspaceEvent && now - workspaceEvent.at > 4000) workspaceEvent = null
+
+    // A sleeping cat needs no frames until something wakes it, and every event
+    // source above calls nudge() to start the loop again.
+    if (decision.idle) {
+      ticker.running = false
+      animTick = 0
+    }
+  }
+
+  onBarHiddenChanged: {
+    if (barHidden) ticker.running = false
+    else nudge()
+  }
+
+  Component.onCompleted: {
+    lastPointerMoveAt = Date.now()
+    var workspace = Hyprland.focusedWorkspace
+    if (workspace) _lastWorkspaceId = Number(workspace.id)
+    nudge()
+  }
+
+  // ---------------------------------------------------------- the window
+
+  PanelWindow {
+    id: window
+
+    screen: root.catScreen
+    visible: root.catScreen !== null && !root.barHidden
+    color: "transparent"
+
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "navbar-cat"
+    // Above the bar (which sits on Top), matching what the bar's own drag
+    // ghost does when it needs to float over everything.
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+    anchors {
+      top: root.barPosition !== "bottom"
+      bottom: root.barPosition !== "top"
+      left: root.barPosition !== "right"
+      right: root.barPosition !== "left"
+    }
+    implicitWidth: root.vertical ? root.barSize : 0
+    implicitHeight: root.vertical ? 0 : root.barSize
+
+    // Click-through everywhere the cat is not. While it is walking the region
+    // is empty, so a moving cat can never swallow a click meant for the bar;
+    // it only becomes clickable once it has settled somewhere.
+    mask: Region {
+      x: root.maskActive ? Math.round(sprite.x) : 0
+      y: root.maskActive ? Math.round(sprite.y) : 0
+      width: root.maskActive ? sprite.width : 0
+      height: root.maskActive ? sprite.height : 0
+    }
+
+    CatSprite {
+      id: sprite
+
+      width: root.catSize
+      height: root.catSize
+      devicePixels: root.catSize * (root.catScreen ? root.catScreen.devicePixelRatio : 1)
+      assetDir: root.assetDir
+
+      pose: root.catPose
+      animTick: root.animTick
+      fillColor: Color.bar.text
+      inkColor: Color.bar.background
+
+      x: root.vertical
+        ? Math.round((window.width - width) / 2)
+        : Math.round(root.catPos)
+      y: root.vertical
+        ? Math.round(root.catPos)
+        : Math.round((window.height - height) / 2) + bobOffset
+
+      // A cat listening to music bobs; everything else sits still.
+      property int bobOffset: root.catBob ? ((root.animTick & 1) ? -1 : 0) : 0
+
+      MouseArea {
+        anchors.fill: parent
+        enabled: root.maskActive
+        acceptedButtons: Qt.LeftButton
+        onClicked: {
+          root.pettedAt = Date.now()
+          root.nudge()
+        }
+      }
+    }
+  }
+}
