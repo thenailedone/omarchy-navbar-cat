@@ -81,6 +81,15 @@ function clamp(value, low, high) {
   return value
 }
 
+// Convert user-supplied configuration to a finite value inside a useful range.
+// QML's Number() accepts values such as Infinity, which can otherwise escape
+// ordinary greater-than checks and produce invalid geometry or movement.
+function boundedNumber(value, fallback, low, high) {
+  var number = Number(value)
+  if (!isFinite(number)) return fallback
+  return clamp(number, low, high)
+}
+
 // Pick somewhere for the cat to go of its own accord, keeping clear of the
 // middle of the bar.
 //

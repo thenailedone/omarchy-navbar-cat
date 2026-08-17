@@ -62,13 +62,13 @@ Item {
     return ({})
   }
 
-  readonly property real speed: Number(config.speed) > 0 ? Number(config.speed) : 1.0
+  readonly property real speed: Brain.boundedNumber(config.speed, 1.0, 0.1, 5.0)
   readonly property bool pettable: config.pettable !== false
   readonly property bool chaseCursor: config.chaseCursor !== false
-  readonly property int sleepAfter: Number(config.sleepAfter) > 0 ? Number(config.sleepAfter) : 180
+  readonly property int sleepAfter: Math.round(Brain.boundedNumber(config.sleepAfter, 180, 1, 86400))
   readonly property var reactions: config.reactions && typeof config.reactions === "object"
     ? config.reactions : ({})
-  readonly property int catSize: Number(config.size) > 0 ? Number(config.size) : 16
+  readonly property int catSize: Math.round(Brain.boundedNumber(config.size, 16, 8, 64))
 
   // Unknown names fall back rather than leaving the cat invisible on a typo.
   readonly property string character: {
@@ -79,11 +79,9 @@ Item {
   readonly property bool pounce: config.pounce !== false
   // Fraction of the bar to keep clear when the cat picks its own spot. Omarchy
   // centres the clock, so the middle is the one place reliably occupied.
-  readonly property real avoidCenter: config.avoidCenter !== undefined
-    ? Math.max(0, Math.min(0.9, Number(config.avoidCenter)))
-    : 0.2
-  readonly property int stirEvery: Number(config.stirEvery) > 0 ? Number(config.stirEvery) : 150
-  readonly property int stirFor: Number(config.stirFor) > 0 ? Number(config.stirFor) : 25
+  readonly property real avoidCenter: Brain.boundedNumber(config.avoidCenter, 0.2, 0, 0.9)
+  readonly property int stirEvery: Math.round(Brain.boundedNumber(config.stirEvery, 150, 10, 86400))
+  readonly property int stirFor: Math.round(Brain.boundedNumber(config.stirFor, 25, 1, 3600))
 
   // Room for the cat to leave the bar during a pounce. The window grows inward
   // from the bar's own edge; the extra strip is fully transparent and carries
@@ -219,7 +217,7 @@ Item {
   // A sleeping cat does not need the pointer ten times a second. Slowing the
   // sampler down while it sleeps is most of the reason this costs nothing when
   // the desktop is idle.
-  readonly property int cursorInterval: catPose === "sleep" ? 500 : 100
+  readonly property int cursorInterval: catPose === "sleep" ? 1000 : 100
   onCursorIntervalChanged: if (cursorFeed.running) cursorFeed.write(cursorInterval + "\n")
 
   // ------------------------------------------------------- event sources
@@ -249,11 +247,15 @@ Item {
   // 30fps: fast enough that a running cat does not visibly stutter, slow
   // enough to be free. The sprite's own frames advance far slower (below).
   readonly property int tickMs: 33
+  property real _lastStepAt: 0
 
   function nudge() {
     // Something happened that the cat might care about — make sure the loop is
     // running to notice it.
-    if (!ticker.running && !barHidden) ticker.running = true
+    if (!ticker.running && !barHidden) {
+      _lastStepAt = Date.now()
+      ticker.running = true
+    }
   }
 
   Timer {
@@ -280,6 +282,10 @@ Item {
     if (!catScreen || barLength <= 0) return
 
     var now = Date.now()
+    // Use elapsed wall time so animation speed remains stable if the compositor
+    // delivers a timer late. Cap long gaps to avoid teleporting after sleep.
+    var elapsedMs = _lastStepAt > 0 ? Math.min(100, Math.max(1, now - _lastStepAt)) : tickMs
+    _lastStepAt = now
     var maxPos = Math.max(0, barLength - catSize)
     var onBar = pointerOnBar()
 
@@ -329,7 +335,7 @@ Item {
     } else {
       var pixelsPerSecond = decision.gait === "run" ? 150 : (decision.gait === "walk" ? 55 : 0)
       if (pixelsPerSecond > 0) {
-        var stepSize = pixelsPerSecond * speed * (tickMs / 1000)
+        var stepSize = pixelsPerSecond * speed * (elapsedMs / 1000)
         var delta = decision.target - catPos
         catPos = Math.abs(delta) <= stepSize
           ? decision.target

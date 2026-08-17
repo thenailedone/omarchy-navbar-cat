@@ -150,7 +150,7 @@ only exists once the cat has settled somewhere, and disappears the moment it
 sets off again. Set `pettable: false` to remove even that.
 
 It costs almost nothing at rest, either: a sleeping cat stops its own render
-timer, and the pointer sampler slows down to match.
+timer, and the pointer sampler slows to one check per second.
 
 ## How it is put together
 
@@ -169,6 +169,7 @@ ladder is testable with a fake clock:
 
 ```bash
 node --test "test/*.test.mjs"
+python3 -m unittest discover -s test -p "test_*.py"
 ```
 
 ### Two things worth knowing

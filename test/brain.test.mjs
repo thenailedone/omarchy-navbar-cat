@@ -15,7 +15,7 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(REPO, "Brain.js"), "utf8");
 const Brain = new Function(
   `${source}\nreturn { decide, freshState, pickSpot, CHAIN, PET_MS, PET_PERK_MS,`
-    + ` AWAKE_MS, SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS };`,
+    + ` AWAKE_MS, SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS, boundedNumber };`,
 )();
 
 // The middle of the bar, in cat-position terms, and the default keep-clear
@@ -27,6 +27,14 @@ function inCentre(x, avoid = 0.2) {
 }
 
 const DIAGONALS = new Set(["upleft", "upright", "dwleft", "dwright"]);
+
+test("numeric configuration rejects non-finite values and stays bounded", () => {
+  assert.equal(Brain.boundedNumber("not-a-number", 16, 8, 64), 16);
+  assert.equal(Brain.boundedNumber(Infinity, 1, 0.1, 5), 1);
+  assert.equal(Brain.boundedNumber(-20, 1, 0.1, 5), 0.1);
+  assert.equal(Brain.boundedNumber(999, 1, 0.1, 5), 5);
+  assert.equal(Brain.boundedNumber("2.5", 1, 0.1, 5), 2.5);
+});
 
 // Drive the cat all the way down to sleep from a fresh state, and hand back the
 // decision and the clock reading at that moment. Several tests need a genuinely
