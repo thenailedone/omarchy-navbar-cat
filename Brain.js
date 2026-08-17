@@ -33,6 +33,10 @@ var POUNCE_MS = 600
 var POUNCE_COOLDOWN_MS = 6000
 // How far along the bar a pounce carries the cat.
 var POUNCE_REACH = 14
+// Crossing the clock is a longer leap than a pointer pounce. The sprite moves
+// into the transparent headroom while it passes the reserved centre band, so
+// it never runs across the widgets themselves.
+var CROSSING_MS = 850
 // A new notification makes the cat look up briefly.
 var NOTIFICATION_MS = 1400
 // How long it scratches an end before turning back into the bar.
@@ -77,6 +81,9 @@ function freshState(seed) {
     edgeScratchStartedAt: null,
     edgeRetreatUntil: null,
     edgeRetreatTarget: null,
+    crossingStartedAt: null,
+    crossingFrom: null,
+    crossingTo: null,
   }
 }
 
@@ -103,34 +110,78 @@ function boundedNumber(value, fallback, low, high) {
 }
 
 // Pick somewhere for the cat to go of its own accord, keeping clear of the
-// middle of the bar.
+// configured widget reservations.
 //
 // Omarchy centres the clock by default (`centerAnchor` in shell.json), so the
-// middle is the one stretch of bar that is reliably occupied on almost every
-// setup. The cat still walks *through* it — only the places it chooses to stop
-// are steered away, which is the difference between a cat that avoids the
-// clock and a cat that can never cross the bar.
+// middle is reliably occupied on almost every setup, while the end reservations
+// cover the usual workspace and status widgets.
 //
 // This is a guess about layout, not knowledge of it: nothing exposes widget
 // geometry. `avoidCenter` is the fraction of the bar to keep clear, and 0
 // turns the whole idea off for anyone whose clock lives elsewhere.
-function pickSpot(state, maxX, barLength, avoid) {
+function safeLanes(barLength, catSize, avoidCenter, avoidEdges) {
+  var maxX = Math.max(0, barLength - catSize)
+  var edge = barLength * Math.max(0, avoidEdges || 0)
+  var halfGap = (barLength * Math.max(0, avoidCenter || 0)) / 2
+  if (halfGap <= 0) {
+    return maxX - edge >= edge ? [{ low: edge, high: maxX - edge }] : []
+  }
+  var middle = barLength / 2
+  var left = { low: edge, high: middle - halfGap - catSize }
+  var right = { low: middle + halfGap, high: maxX - edge }
+  var lanes = []
+  if (left.high >= left.low) lanes.push(left)
+  if (right.high >= right.low) lanes.push(right)
+  return lanes
+}
+
+function laneFor(lanes, x) {
+  for (var i = 0; i < lanes.length; i++) {
+    if (x >= lanes[i].low - ARRIVE_EPS && x <= lanes[i].high + ARRIVE_EPS) return i
+  }
+  return -1
+}
+
+// Bring a requested position to the nearest legal point. When the request is
+// inside the centre reservation, prefer the lane the cat already occupies so
+// cursor chasing makes it stop short instead of needlessly crossing the clock.
+function safeTarget(raw, current, barLength, catSize, avoidCenter, avoidEdges) {
+  var lanes = safeLanes(barLength, catSize, avoidCenter, avoidEdges)
+  if (lanes.length === 0) return clamp(raw, 0, Math.max(0, barLength - catSize))
+  var currentLane = laneFor(lanes, current)
+  if (currentLane >= 0 && raw > lanes[currentLane].high
+      && currentLane + 1 < lanes.length && raw < lanes[currentLane + 1].low) {
+    return lanes[currentLane].high
+  }
+  var best = lanes[0].low
+  var distance = Infinity
+  for (var i = 0; i < lanes.length; i++) {
+    var candidate = clamp(raw, lanes[i].low, lanes[i].high)
+    var candidateDistance = Math.abs(raw - candidate)
+    if (candidateDistance < distance) {
+      best = candidate
+      distance = candidateDistance
+    }
+  }
+  return best
+}
+
+function pickSpot(state, maxX, barLength, avoid, avoidEdges) {
   if (maxX <= 0) return 0
-  if (!(avoid > 0)) return nextRandom(state) * maxX
+  if (!(avoid > 0) && !(avoidEdges > 0)) return nextRandom(state) * maxX
+  var lanes = safeLanes(barLength, barLength - maxX, avoid, avoidEdges || 0)
+  if (lanes.length === 0) return nextRandom(state) * maxX
 
-  var middle = maxX / 2
-  var halfGap = (barLength * avoid) / 2
-  var lowEnd = middle - halfGap
-  var highStart = middle + halfGap
-
-  var lowSpan = Math.max(0, lowEnd)
-  var highSpan = Math.max(0, maxX - highStart)
-  // A bar too narrow to have an outside falls back to anywhere at all, rather
-  // than leaving the cat with nowhere legal to stand.
-  if (lowSpan + highSpan <= 0) return nextRandom(state) * maxX
-
-  var roll = nextRandom(state) * (lowSpan + highSpan)
-  return roll < lowSpan ? roll : highStart + (roll - lowSpan)
+  var total = 0
+  for (var i = 0; i < lanes.length; i++) total += lanes[i].high - lanes[i].low
+  if (total <= 0) return lanes[Math.floor(nextRandom(state) * lanes.length)].low
+  var roll = nextRandom(state) * total
+  for (var j = 0; j < lanes.length; j++) {
+    var span = lanes[j].high - lanes[j].low
+    if (roll <= span) return lanes[j].low + roll
+    roll -= span
+  }
+  return lanes[lanes.length - 1].high
 }
 
 function chainPose(elapsed) {
@@ -246,7 +297,7 @@ function intent(input, state) {
   if (state.stirUntil !== null && state.stirUntil !== undefined) {
     if (now < state.stirUntil) {
       if (state.wanderTarget === null || state.wanderTarget === undefined) {
-        state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter)
+        state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter, config.avoidEdges)
       }
       return { reason: "stir", target: state.wanderTarget, gait: "walk", rest: "chain" }
     }
@@ -257,7 +308,7 @@ function intent(input, state) {
       && now >= state.nextStirAt) {
     state.nextStirAt = null
     state.stirUntil = now + (config.stirFor || 25) * 1000
-    state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter)
+    state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter, config.avoidEdges)
     return { reason: "stir", target: state.wanderTarget, gait: "walk", rest: "chain" }
   }
 
@@ -309,7 +360,7 @@ function intent(input, state) {
   // 7. Nothing in particular. Wander, and re-roll once the cat has finished
   //    dawdling wherever it arrived.
   if (state.wanderTarget === null || state.wanderTarget === undefined) {
-    state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter)
+    state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter, config.avoidEdges)
   }
   return { reason: "wander", target: state.wanderTarget, gait: "walk", rest: "chain" }
 }
@@ -354,13 +405,50 @@ function decide(input, state) {
     }
   }
   var rawTarget = want.target
-  var target = clamp(rawTarget, 0, maxX)
+  var config = input.config || {}
+  var avoidance = config.avoidWidgets !== false
+    && ((config.avoidCenter || 0) > 0 || (config.avoidEdges || 0) > 0)
+  var target = avoidance
+    ? safeTarget(rawTarget, input.x, input.barLength, input.catSize,
+        config.avoidCenter, config.avoidEdges)
+    : clamp(rawTarget, 0, maxX)
   var delta = target - input.x
   var moving = want.gait !== "idle" && Math.abs(delta) > ARRIVE_EPS
 
+  // If movement changes safe lanes, leap through the window's transparent
+  // headroom. This keeps the sprite off the centre widgets for the crossing.
+  var lanes = avoidance
+    ? safeLanes(input.barLength, input.catSize, config.avoidCenter, config.avoidEdges)
+    : []
+  var fromLane = laneFor(lanes, input.x)
+  var toLane = laneFor(lanes, target)
+  var crossing = state.crossingStartedAt !== null && state.crossingStartedAt !== undefined
+  if (!crossing && moving && fromLane >= 0 && toLane >= 0 && fromLane !== toLane) {
+    state.crossingStartedAt = now
+    state.crossingFrom = input.x
+    state.crossingTo = target
+    crossing = true
+  }
+  if (crossing) {
+    var crossingProgress = (now - state.crossingStartedAt) / CROSSING_MS
+    var crossingTarget = state.crossingFrom
+      + (state.crossingTo - state.crossingFrom) * Math.min(1, crossingProgress)
+    state.lastDir = state.crossingTo > state.crossingFrom ? 1 : -1
+    state.pose = leapPose(edge, state.lastDir, crossingProgress < 0.5 ? 1 : -1)
+    if (crossingProgress >= 1) {
+      state.crossingStartedAt = null
+      state.crossingFrom = null
+      state.crossingTo = null
+    }
+    return {
+      reason: "crossing", target: crossingTarget, gait: "run", pose: state.pose,
+      lift: crossingProgress >= 1 ? 0 : Math.sin(Math.PI * crossingProgress), snap: true,
+      bob: false, pettable: false, idle: false, wakeIn: 0, state: state,
+    }
+  }
+
   // Reaching the pointer is the cue to pounce at it. Anything else the cat is
   // doing takes priority, and the cooldown keeps it from turning into a tic.
-  var config = input.config || {}
   var pouncing = state.pounceStartedAt !== null && state.pounceStartedAt !== undefined
   if (!pouncing && config.pounce !== false && want.reason === "chase" && !moving
       && (state.lastPounceAt === null || state.lastPounceAt === undefined

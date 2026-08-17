@@ -106,6 +106,8 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
       "pounce": true,
       "zoomies": true,
       "zoomEvery": 600,
+      "avoidWidgets": true,
+      "avoidEdges": 0.18,
       "avoidCenter": 0.2,
       "sleepAfter": 180,
       "stirEvery": 150,
@@ -134,7 +136,9 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
 | `pounce` | `true` | Whether it leaps at the pointer (see below) |
 | `zoomies` | `true` | Whether it occasionally bolts across the bar |
 | `zoomEvery` | `600` | Average seconds between zoomies (minimum 60) |
-| `avoidCenter` | `0.2` | Fraction of the bar's middle to keep clear of the clock; `0` disables |
+| `avoidWidgets` | `true` | Keep clear of the bar's left, centre, and right widget zones |
+| `avoidEdges` | `0.18` | Fraction reserved at each end for left/right widgets |
+| `avoidCenter` | `0.2` | Fraction reserved in the middle for the clock |
 | `sleepAfter` | `180` | Seconds of pointer stillness before it sleeps |
 | `stirEvery` | `150` | Roughly how often a sleeping cat gets up, in seconds |
 | `stirFor` | `25` | How long it potters about before settling again |
@@ -201,13 +205,12 @@ absurd price for a cat. `bin/navbar-cat-cursor` makes the same request straight
 to the Hyprland socket for ~0.03ms, which is 285× cheaper and the reason this
 feature exists at all.
 
-**The cat does not know where your widgets are.** Nothing in the bar exposes
-widget geometry, so the cat cannot see your clock — it only assumes one is
-there. Omarchy centres the clock by default, so the spots the cat *chooses*
-for itself keep clear of the middle fifth of the bar. It still walks straight
-through the middle, and it will still come to the middle if that is where you
-put your pointer; it just will not settle down or fall asleep on top of your
-clock. If your clock lives somewhere else, set `avoidCenter: 0`.
+**The cat estimates where your widgets are.** Nothing in the bar exposes widget
+geometry, so it reserves the outer 18% at each end and the middle 20% by
+default. It roams in the two open lanes, stops short when the pointer is over a
+reserved zone, and leaps through the transparent space outside the bar when it
+needs to change sides. Adjust `avoidEdges` and `avoidCenter` to match your bar,
+or set `avoidWidgets: false` to let it use the full width again.
 
 ## Sprites and licence
 

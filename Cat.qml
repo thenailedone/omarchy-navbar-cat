@@ -82,6 +82,8 @@ Item {
   // Fraction of the bar to keep clear when the cat picks its own spot. Omarchy
   // centres the clock, so the middle is the one place reliably occupied.
   readonly property real avoidCenter: Brain.boundedNumber(config.avoidCenter, 0.2, 0, 0.9)
+  readonly property real avoidEdges: Brain.boundedNumber(config.avoidEdges, 0.18, 0, 0.4)
+  readonly property bool avoidWidgets: config.avoidWidgets !== false
   readonly property int stirEvery: Math.round(Brain.boundedNumber(config.stirEvery, 150, 10, 86400))
   readonly property int stirFor: Math.round(Brain.boundedNumber(config.stirFor, 25, 1, 3600))
   function configuredColor(value, fallback) {
@@ -97,7 +99,7 @@ Item {
   // Room for the cat to leave the bar during a pounce. The window grows inward
   // from the bar's own edge; the extra strip is fully transparent and carries
   // no input region, so it costs nothing when the cat is on the ground.
-  readonly property int headroom: pounce ? Math.round(catSize * 1.5) : 0
+  readonly property int headroom: (pounce || avoidWidgets) ? Math.round(catSize * 1.5) : 0
 
   // ------------------------------------------------------------ bar state
 
@@ -325,7 +327,8 @@ Item {
     // same left-hand corner.
     if (!_placed) {
       _placed = true
-      catPos = Brain.pickSpot(brainState, maxPos, barLength, avoidCenter)
+      catPos = Brain.pickSpot(brainState, maxPos, barLength,
+        avoidWidgets ? avoidCenter : 0, avoidWidgets ? avoidEdges : 0)
     }
 
     var decision = Brain.decide({
@@ -350,6 +353,8 @@ Item {
         zoomies: zoomies,
         zoomEvery: zoomEvery,
         avoidCenter: avoidCenter,
+        avoidEdges: avoidEdges,
+        avoidWidgets: avoidWidgets,
         stirEvery: stirEvery,
         stirFor: stirFor,
         reactions: reactions,

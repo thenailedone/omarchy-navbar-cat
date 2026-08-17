@@ -16,7 +16,7 @@ const source = readFileSync(join(REPO, "Brain.js"), "utf8");
 const Brain = new Function(
   `${source}\nreturn { decide, freshState, pickSpot, CHAIN, PET_MS, PET_PERK_MS,`
     + ` AWAKE_MS, SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS, NOTIFICATION_MS,`
-    + ` EDGE_SCRATCH_MS, boundedNumber };`,
+    + ` EDGE_SCRATCH_MS, CROSSING_MS, boundedNumber, safeLanes, safeTarget };`,
 )();
 
 // The middle of the bar, in cat-position terms, and the default keep-clear
@@ -798,4 +798,72 @@ test("a bar with no room outside the middle still yields a valid spot", () => {
     const x = Brain.pickSpot(state, maxX, len, 0.9);
     assert.ok(x >= 0 && x <= Math.max(0, maxX) && Number.isFinite(x), `got ${x}`);
   }
+});
+
+// ---------------------------------------- avoiding all three widget regions
+
+test("widget avoidance reserves both ends and the centre", () => {
+  const lanes = Brain.safeLanes(BAR, CAT, 0.2, 0.18);
+  assert.deepEqual(lanes, [
+    { low: 180, high: 384 },
+    { low: 600, high: 804 },
+  ]);
+
+  let state = Brain.freshState();
+  for (let i = 0; i < 400; i++) {
+    const x = Brain.pickSpot(state, BAR - CAT, BAR, 0.2, 0.18);
+    assert.ok(
+      lanes.some((lane) => x >= lane.low && x <= lane.high),
+      `picked reserved position ${x}`,
+    );
+  }
+});
+
+test("cursor chasing stops short of edge and centre widgets", () => {
+  const config = {
+    ...input().config, avoidWidgets: true, avoidCenter: 0.2, avoidEdges: 0.18,
+  };
+  const atLeftIcons = decide({ x: 250, pointer: { onBar: true, pos: 10 }, config });
+  assert.equal(atLeftIcons.target, 180);
+
+  const atClock = decide({ x: 250, pointer: { onBar: true, pos: 500 }, config });
+  assert.equal(atClock.target, 384, "should wait at the near edge of the clock");
+
+  const atRightIcons = decide({ x: 700, pointer: { onBar: true, pos: 990 }, config });
+  assert.equal(atRightIcons.target, 804);
+});
+
+test("changing safe lanes leaps over the centre reservation", () => {
+  const config = {
+    ...input().config, avoidWidgets: true, avoidCenter: 0.2, avoidEdges: 0.18,
+  };
+  let out = decide({ x: 250, pointer: { onBar: true, pos: 750 }, config });
+  assert.equal(out.reason, "crossing");
+  assert.equal(out.snap, true);
+  assert.equal(out.lift, 0);
+
+  out = Brain.decide(input({
+    now: 10_000 + Brain.CROSSING_MS / 2,
+    x: out.target, pointer: { onBar: true, pos: 750 }, config,
+  }), out.state);
+  assert.equal(out.reason, "crossing");
+  assert.ok(out.lift > 0.99, "should be outside the bar over the clock");
+  assert.ok(inCentre(out.target), "the horizontal crossing should pass the clock while lifted");
+
+  out = Brain.decide(input({
+    now: 10_000 + Brain.CROSSING_MS + 1,
+    x: out.target, pointer: { onBar: true, pos: 750 }, config,
+  }), out.state);
+  assert.equal(out.reason, "crossing");
+  assert.equal(out.target, 742);
+  assert.equal(out.lift, 0);
+});
+
+test("avoidWidgets false restores full-width movement", () => {
+  const config = {
+    ...input().config, avoidWidgets: false, avoidCenter: 0.2, avoidEdges: 0.18,
+  };
+  const out = decide({ x: 250, pointer: { onBar: true, pos: 500 }, config });
+  assert.equal(out.reason, "chase");
+  assert.equal(out.target, 492);
 });
