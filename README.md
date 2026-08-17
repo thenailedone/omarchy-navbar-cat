@@ -16,11 +16,13 @@ asleep.
 |---|---|
 | You move the pointer onto the bar | runs to it, then **pounces** at it |
 | You switch workspace | scampers in the direction you switched |
+| A notification arrives | looks up attentively |
 | You plug in the charger | gets drowsy and naps where it is |
 | Something is playing | dances on the spot |
 | You leave for a few minutes | settles down and falls asleep |
 | It has been asleep a while | gets up, potters about, and settles again |
 | Nothing in particular | wanders, with pauses |
+| Every so often | gets the zoomies and bolts across the bar |
 | You click it | looks up at you, then grooms |
 
 It walks the long way round on vertical bars too, and claws at the ends of the
@@ -30,8 +32,8 @@ Those reactions are a priority order, not a list — the first one that applies
 wins. Anything that wakes the cat beats anything that puts it to sleep:
 
 ```
-petted  >  pointer  >  workspace  >  music  >  charging  >  idle  >  wander
-└──────────── awake ────────────┘   └───── asleep ─────┘
+petted > pointer > notification > workspace > zoomies > music > charging > idle > wander
+└──────────────────── awake ──────────────────────┘   └──── asleep ────┘
 ```
 
 So music still gets the cat bobbing while you are on mains power, but moving
@@ -102,12 +104,21 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
       "pettable": true,
       "chaseCursor": true,
       "pounce": true,
+      "zoomies": true,
+      "zoomEvery": 600,
       "avoidCenter": 0.2,
       "sleepAfter": 180,
       "stirEvery": 150,
       "stirFor": 25,
       "monitor": "focused",
-      "reactions": { "music": true, "charging": true, "workspace": true }
+      "fillColor": "accent",
+      "inkColor": "bar-background",
+      "reactions": {
+        "notifications": true,
+        "music": true,
+        "charging": true,
+        "workspace": true
+      }
     }
   ]
 }
@@ -121,12 +132,19 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
 | `pettable` | `true` | Whether the cat can be clicked |
 | `chaseCursor` | `true` | Whether the cat comes when you visit the bar |
 | `pounce` | `true` | Whether it leaps at the pointer (see below) |
+| `zoomies` | `true` | Whether it occasionally bolts across the bar |
+| `zoomEvery` | `600` | Average seconds between zoomies (minimum 60) |
 | `avoidCenter` | `0.2` | Fraction of the bar's middle to keep clear of the clock; `0` disables |
 | `sleepAfter` | `180` | Seconds of pointer stillness before it sleeps |
 | `stirEvery` | `150` | Roughly how often a sleeping cat gets up, in seconds |
 | `stirFor` | `25` | How long it potters about before settling again |
 | `monitor` | `"focused"` | `"focused"` to follow you, or an output name to pin it |
-| `reactions` | all on | Individually disable the music, charging, or workspace reactions |
+| `fillColor` | `"accent"` | Body color: a theme role or CSS/hex color |
+| `inkColor` | `"bar-background"` | Outline color: a theme role or CSS/hex color |
+| `reactions` | all on | Individually disable notification, music, charging, or workspace reactions |
+
+Right-click a settled character to cycle between `neko`, `tora`, and `dog`.
+The selection is saved in `shell.json`. Left-click still pets it.
 
 ### About the pounce
 

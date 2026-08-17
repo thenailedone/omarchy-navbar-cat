@@ -77,11 +77,22 @@ Item {
   }
 
   readonly property bool pounce: config.pounce !== false
+  readonly property bool zoomies: config.zoomies !== false
+  readonly property int zoomEvery: Math.round(Brain.boundedNumber(config.zoomEvery, 600, 60, 86400))
   // Fraction of the bar to keep clear when the cat picks its own spot. Omarchy
   // centres the clock, so the middle is the one place reliably occupied.
   readonly property real avoidCenter: Brain.boundedNumber(config.avoidCenter, 0.2, 0, 0.9)
   readonly property int stirEvery: Math.round(Brain.boundedNumber(config.stirEvery, 150, 10, 86400))
   readonly property int stirFor: Math.round(Brain.boundedNumber(config.stirFor, 25, 1, 3600))
+  function configuredColor(value, fallback) {
+    var token = String(value || "").toLowerCase()
+    if (token === "") return fallback
+    if (token === "bar-background") return Color.bar.background
+    if (token === "bar-text") return Color.bar.text
+    return Color.flatColor(value, fallback)
+  }
+  readonly property color catFillColor: configuredColor(config.fillColor || "accent", Color.accent)
+  readonly property color catInkColor: configuredColor(config.inkColor || "bar-background", Color.bar.background)
 
   // Room for the cat to leave the bar during a pounce. The window grows inward
   // from the bar's own edge; the extra strip is fully transparent and carries
@@ -125,6 +136,25 @@ Item {
   property real lastPointerMoveAt: 0
   property real pettedAt: -1
   property var workspaceEvent: null
+  property real notifiedAt: -1
+
+  readonly property var notificationService: shell && typeof shell.firstPartyServiceFor === "function"
+    ? shell.firstPartyServiceFor("omarchy.notifications") : null
+  readonly property var notificationModel: notificationService ? notificationService.popupModel : null
+  property int _lastNotificationCount: 0
+
+  Connections {
+    target: root.notificationModel
+    function onCountChanged() {
+      var count = root.notificationModel ? root.notificationModel.count : 0
+      if (count > root._lastNotificationCount) {
+        root.notifiedAt = Date.now()
+        root.nudge()
+      }
+      root._lastNotificationCount = count
+    }
+  }
+  onNotificationModelChanged: _lastNotificationCount = notificationModel ? notificationModel.count : 0
 
   readonly property bool musicPlaying: {
     if (reactions.music === false) return false
@@ -307,6 +337,7 @@ Item {
       x: catPos,
       pointer: onBar ? { onBar: true, pos: pointerAlongBar() } : null,
       pettedAt: pettedAt >= 0 ? pettedAt : null,
+      notifiedAt: notifiedAt >= 0 ? notifiedAt : null,
       lastPointerMoveAt: lastPointerMoveAt,
       music: musicPlaying,
       charging: charging,
@@ -316,6 +347,8 @@ Item {
         pettable: pettable,
         sleepAfter: sleepAfter,
         pounce: pounce,
+        zoomies: zoomies,
+        zoomEvery: zoomEvery,
         avoidCenter: avoidCenter,
         stirEvery: stirEvery,
         stirFor: stirFor,
@@ -385,6 +418,15 @@ Item {
     nudge()
   }
 
+  function cycleCharacter() {
+    var index = Frames.CHARACTERS.indexOf(character)
+    var nextCharacter = Frames.CHARACTERS[(index + 1) % Frames.CHARACTERS.length]
+    var next = JSON.parse(JSON.stringify(config || {}))
+    next.id = pluginId
+    next.character = nextCharacter
+    if (shell && typeof shell.updateEntryInline === "function") shell.updateEntryInline(pluginId, next)
+  }
+
   // ---------------------------------------------------------- the window
 
   PanelWindow {
@@ -445,8 +487,8 @@ Item {
 
       pose: root.catPose
       animTick: root.animTick
-      fillColor: Color.bar.text
-      inkColor: Color.bar.background
+      fillColor: root.catFillColor
+      inkColor: root.catInkColor
 
       // Along the bar the cat sits where the brain put it; across the bar it
       // rides the pounce arc out of the strip and back.
@@ -462,10 +504,14 @@ Item {
       MouseArea {
         anchors.fill: parent
         enabled: root.maskActive
-        acceptedButtons: Qt.LeftButton
-        onClicked: {
-          root.pettedAt = Date.now()
-          root.nudge()
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: function(mouse) {
+          if (mouse.button === Qt.RightButton) {
+            root.cycleCharacter()
+          } else {
+            root.pettedAt = Date.now()
+            root.nudge()
+          }
         }
       }
     }

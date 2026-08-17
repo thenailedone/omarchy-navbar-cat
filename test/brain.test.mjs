@@ -15,7 +15,8 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(REPO, "Brain.js"), "utf8");
 const Brain = new Function(
   `${source}\nreturn { decide, freshState, pickSpot, CHAIN, PET_MS, PET_PERK_MS,`
-    + ` AWAKE_MS, SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS, boundedNumber };`,
+    + ` AWAKE_MS, SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS, NOTIFICATION_MS,`
+    + ` EDGE_SCRATCH_MS, boundedNumber };`,
 )();
 
 // The middle of the bar, in cat-position terms, and the default keep-clear
@@ -72,6 +73,7 @@ function input(overrides = {}) {
     x: 500,
     pointer: null,
     pettedAt: null,
+    notifiedAt: null,
     lastPointerMoveAt: 10_000,
     music: false,
     charging: false,
@@ -93,6 +95,39 @@ function decide(overrides, state = Brain.freshState()) {
 test("rung 7: with nothing happening the cat wanders", () => {
   const out = decide({});
   assert.equal(out.reason, "wander");
+});
+
+test("a fresh notification makes the cat perk up without moving", () => {
+  const out = decide({ notifiedAt: 9_900, x: 400 });
+  assert.equal(out.reason, "notification");
+  assert.equal(out.pose, "awake");
+  assert.equal(out.target, 400);
+  assert.equal(out.gait, "idle");
+});
+
+test("notification reactions can be disabled", () => {
+  const out = decide({
+    notifiedAt: 9_900,
+    config: { ...input().config, reactions: { notifications: false } },
+  });
+  assert.notEqual(out.reason, "notification");
+});
+
+test("scheduled zoomies run toward the far end", () => {
+  const state = Brain.freshState();
+  state.nextZoomAt = 9_999;
+  const out = decide({ x: 100 }, state);
+  assert.equal(out.reason, "zoomies");
+  assert.equal(out.gait, "run");
+  assert.equal(out.target, BAR - CAT);
+});
+
+test("zoomies can be disabled", () => {
+  const state = Brain.freshState();
+  state.nextZoomAt = 9_999;
+  const out = decide({ config: { ...input().config, zoomies: false } }, state);
+  assert.notEqual(out.reason, "zoomies");
+  assert.equal(out.state.nextZoomAt, null);
 });
 
 test("rung 7: a wander target stays put across ticks until reached", () => {
@@ -350,6 +385,37 @@ test("edges: a cat that wants to walk past the end claws at it instead", () => {
 
   const left = decide({ pointer: { onBar: true, pos: -200 }, x: 0, config: noPounce });
   assert.equal(left.pose, "ltogi");
+});
+
+test("edges: scratching is followed by a visible retreat into the bar", () => {
+  const state = Brain.freshState();
+  const event = { at: 10_000, dir: 1 };
+  const atEdge = decide({ x: BAR - CAT, workspaceEvent: event }, state);
+  assert.equal(atEdge.pose, "rtogi");
+
+  Brain.decide(input({
+    now: 10_000 + Brain.EDGE_SCRATCH_MS + 1,
+    x: BAR - CAT,
+    workspaceEvent: event,
+  }), atEdge.state);
+
+  const turning = Brain.decide(input({
+    now: 10_000 + Brain.EDGE_SCRATCH_MS + 34,
+    x: BAR - CAT,
+    workspaceEvent: event,
+  }), atEdge.state);
+  assert.equal(turning.reason, "edge-turn");
+  assert.equal(turning.pose, "awake");
+
+  const retreat = Brain.decide(input({
+    now: 10_000 + Brain.EDGE_SCRATCH_MS + Brain.AWAKE_MS + 35,
+    x: BAR - CAT,
+    workspaceEvent: event,
+  }), turning.state);
+  assert.equal(retreat.reason, "edge-turn");
+  assert.equal(retreat.gait, "run");
+  assert.equal(retreat.pose, "left");
+  assert.ok(retreat.target < BAR - CAT);
 });
 
 test("vertical bars: the cat uses up and down frames", () => {

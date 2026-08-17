@@ -33,6 +33,12 @@ var POUNCE_MS = 600
 var POUNCE_COOLDOWN_MS = 6000
 // How far along the bar a pounce carries the cat.
 var POUNCE_REACH = 14
+// A new notification makes the cat look up briefly.
+var NOTIFICATION_MS = 1400
+// How long it scratches an end before turning back into the bar.
+var EDGE_SCRATCH_MS = 700
+var EDGE_RETREAT_MS = 1400
+var EDGE_RETREAT_DISTANCE = 96
 
 // The settling sequence, in order. `Infinity` terminates it.
 var CHAIN = [
@@ -65,6 +71,12 @@ function freshState(seed) {
     pounceStartedAt: null,
     pounceFrom: 0,
     lastPounceAt: null,
+    nextZoomAt: null,
+    zoomUntil: null,
+    zoomTarget: null,
+    edgeScratchStartedAt: null,
+    edgeRetreatUntil: null,
+    edgeRetreatTarget: null,
   }
 }
 
@@ -176,7 +188,20 @@ function intent(input, state) {
     }
   }
 
-  // 3. Workspace switched a moment ago.
+  // 3. A fresh notification gets a quick attentive look. DND-silenced
+  // notifications never reach this input because the body watches popups.
+  if (reactions.notifications !== false && input.notifiedAt !== null
+      && input.notifiedAt !== undefined && now - input.notifiedAt < NOTIFICATION_MS) {
+    return {
+      reason: "notification",
+      target: input.x,
+      gait: "idle",
+      rest: "hold",
+      pose: "awake",
+    }
+  }
+
+  // 4. Workspace switched a moment ago.
   if (reactions.workspace !== false && input.workspaceEvent
       && now - input.workspaceEvent.at < SCAMPER_MS) {
     return {
@@ -185,6 +210,31 @@ function intent(input, state) {
       gait: "run",
       rest: "wait",
     }
+  }
+
+  // Rare zoomies are deterministic for a given seed, so they remain testable.
+  // They outrank sleepy/passive states but never interrupt direct interaction.
+  if (config.zoomies !== false) {
+    if (state.nextZoomAt === null || state.nextZoomAt === undefined) {
+      var zoomAverage = (config.zoomEvery || 600) * 1000
+      state.nextZoomAt = now + zoomAverage * (0.7 + 0.6 * nextRandom(state))
+    }
+    if (state.zoomUntil !== null && state.zoomUntil !== undefined) {
+      if (now < state.zoomUntil) {
+        return { reason: "zoomies", target: state.zoomTarget, gait: "run", rest: "wait" }
+      }
+      state.zoomUntil = null
+      state.zoomTarget = null
+      state.nextZoomAt = null
+    } else if (now >= state.nextZoomAt) {
+      state.zoomUntil = now + 3200
+      state.zoomTarget = input.x < maxX / 2 ? maxX : 0
+      return { reason: "zoomies", target: state.zoomTarget, gait: "run", rest: "wait" }
+    }
+  } else {
+    state.nextZoomAt = null
+    state.zoomUntil = null
+    state.zoomTarget = null
   }
 
   // A sleeping cat gets up now and then, potters about, and settles again.
@@ -291,6 +341,18 @@ function decide(input, state) {
   var now = input.now
 
   var want = intent(input, state)
+
+  // After scratching an end, run a short distance back into the bar. Direct
+  // interaction always wins and cancels the automatic turnaround.
+  if (state.edgeRetreatUntil !== null && state.edgeRetreatUntil !== undefined) {
+    if ((want.reason === "petted" || want.reason === "chase"
+         || want.reason === "notification") || now >= state.edgeRetreatUntil) {
+      state.edgeRetreatUntil = null
+      state.edgeRetreatTarget = null
+    } else {
+      want = { reason: "edge-turn", target: state.edgeRetreatTarget, gait: "run", rest: "chain" }
+    }
+  }
   var rawTarget = want.target
   var target = clamp(rawTarget, 0, maxX)
   var delta = target - input.x
@@ -363,6 +425,7 @@ function decide(input, state) {
   }
 
   if (moving) {
+    state.edgeScratchStartedAt = null
     state.restKey = null
     state.restStartedAt = null
     state.lastDir = delta > 0 ? 1 : -1
@@ -401,11 +464,32 @@ function decide(input, state) {
     }
   }
 
-  // Wanting to walk off the end of the bar becomes clawing at it instead.
+  // Wanting to walk off the end becomes a short scratch followed by a visible
+  // turn back into the bar.
   if (rawTarget > maxX + ARRIVE_EPS) {
-    pose = vertical ? "dtogi" : "rtogi"
+    if (state.edgeScratchStartedAt === null || state.edgeScratchStartedAt === undefined)
+      state.edgeScratchStartedAt = now
+    if (now - state.edgeScratchStartedAt < EDGE_SCRATCH_MS) {
+      pose = vertical ? "dtogi" : "rtogi"
+    } else {
+      state.edgeScratchStartedAt = null
+      state.edgeRetreatUntil = now + EDGE_RETREAT_MS
+      state.edgeRetreatTarget = Math.max(0, maxX - EDGE_RETREAT_DISTANCE)
+      state.restKey = null
+    }
   } else if (rawTarget < -ARRIVE_EPS) {
-    pose = vertical ? "utogi" : "ltogi"
+    if (state.edgeScratchStartedAt === null || state.edgeScratchStartedAt === undefined)
+      state.edgeScratchStartedAt = now
+    if (now - state.edgeScratchStartedAt < EDGE_SCRATCH_MS) {
+      pose = vertical ? "utogi" : "ltogi"
+    } else {
+      state.edgeScratchStartedAt = null
+      state.edgeRetreatUntil = now + EDGE_RETREAT_MS
+      state.edgeRetreatTarget = Math.min(maxX, EDGE_RETREAT_DISTANCE)
+      state.restKey = null
+    }
+  } else {
+    state.edgeScratchStartedAt = null
   }
 
   state.pose = pose
