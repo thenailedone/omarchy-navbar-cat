@@ -81,6 +81,37 @@ function clamp(value, low, high) {
   return value
 }
 
+// Pick somewhere for the cat to go of its own accord, keeping clear of the
+// middle of the bar.
+//
+// Omarchy centres the clock by default (`centerAnchor` in shell.json), so the
+// middle is the one stretch of bar that is reliably occupied on almost every
+// setup. The cat still walks *through* it — only the places it chooses to stop
+// are steered away, which is the difference between a cat that avoids the
+// clock and a cat that can never cross the bar.
+//
+// This is a guess about layout, not knowledge of it: nothing exposes widget
+// geometry. `avoidCenter` is the fraction of the bar to keep clear, and 0
+// turns the whole idea off for anyone whose clock lives elsewhere.
+function pickSpot(state, maxX, barLength, avoid) {
+  if (maxX <= 0) return 0
+  if (!(avoid > 0)) return nextRandom(state) * maxX
+
+  var middle = maxX / 2
+  var halfGap = (barLength * avoid) / 2
+  var lowEnd = middle - halfGap
+  var highStart = middle + halfGap
+
+  var lowSpan = Math.max(0, lowEnd)
+  var highSpan = Math.max(0, maxX - highStart)
+  // A bar too narrow to have an outside falls back to anywhere at all, rather
+  // than leaving the cat with nowhere legal to stand.
+  if (lowSpan + highSpan <= 0) return nextRandom(state) * maxX
+
+  var roll = nextRandom(state) * (lowSpan + highSpan)
+  return roll < lowSpan ? roll : highStart + (roll - lowSpan)
+}
+
 function chainPose(elapsed) {
   var acc = 0
   for (var i = 0; i < CHAIN.length; i++) {
@@ -156,7 +187,7 @@ function intent(input, state) {
   if (state.stirUntil !== null && state.stirUntil !== undefined) {
     if (now < state.stirUntil) {
       if (state.wanderTarget === null || state.wanderTarget === undefined) {
-        state.wanderTarget = nextRandom(state) * maxX
+        state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter)
       }
       return { reason: "stir", target: state.wanderTarget, gait: "walk", rest: "chain" }
     }
@@ -167,11 +198,11 @@ function intent(input, state) {
       && now >= state.nextStirAt) {
     state.nextStirAt = null
     state.stirUntil = now + (config.stirFor || 25) * 1000
-    state.wanderTarget = nextRandom(state) * maxX
+    state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter)
     return { reason: "stir", target: state.wanderTarget, gait: "walk", rest: "chain" }
   }
 
-  // 4. Something is playing — drift to the centre and bob.
+  // 4. Something is playing — dance, wherever the cat happens to be.
   //
   //    This sits above the charging rung, and the ordering matters more than it
   //    looks. Charging is a *sleepy* rung: it returns and the cat nods off. Put
@@ -181,8 +212,8 @@ function intent(input, state) {
   if (reactions.music !== false && input.music) {
     return {
       reason: "music",
-      target: maxX / 2,
-      gait: "walk",
+      target: input.x,
+      gait: "idle",
       rest: "wait",
       bob: true,
     }
@@ -219,7 +250,7 @@ function intent(input, state) {
   // 7. Nothing in particular. Wander, and re-roll once the cat has finished
   //    dawdling wherever it arrived.
   if (state.wanderTarget === null || state.wanderTarget === undefined) {
-    state.wanderTarget = nextRandom(state) * maxX
+    state.wanderTarget = pickSpot(state, maxX, input.barLength, config.avoidCenter)
   }
   return { reason: "wander", target: state.wanderTarget, gait: "walk", rest: "chain" }
 }

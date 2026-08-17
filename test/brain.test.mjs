@@ -14,9 +14,17 @@ import { dirname, join } from "node:path";
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(REPO, "Brain.js"), "utf8");
 const Brain = new Function(
-  `${source}\nreturn { decide, freshState, CHAIN, PET_MS, PET_PERK_MS, AWAKE_MS,`
-    + ` SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS };`,
+  `${source}\nreturn { decide, freshState, pickSpot, CHAIN, PET_MS, PET_PERK_MS,`
+    + ` AWAKE_MS, SCAMPER_MS, POUNCE_MS, POUNCE_COOLDOWN_MS };`,
 )();
+
+// The middle of the bar, in cat-position terms, and the default keep-clear
+// band. These are functions because BAR and CAT are declared further down.
+function middle() { return (BAR - CAT) / 2; }
+function inCentre(x, avoid = 0.2) {
+  const half = (BAR * avoid) / 2;
+  return x > middle() - half && x < middle() + half;
+}
 
 const DIAGONALS = new Set(["upleft", "upright", "dwleft", "dwright"]);
 
@@ -127,18 +135,19 @@ test("rung 6: the idle chain runs stop -> wash -> scratch -> yawn -> sleep", () 
   assert.deepEqual(seen, ["stop", "wash", "scratch", "yawn", "sleep"]);
 });
 
-test("rung 5: music walks the cat to the centre and bobs", () => {
-  const out = decide({ music: true, x: 100 });
-  assert.equal(out.reason, "music");
-  assert.ok(
-    Math.abs(out.target - (BAR - CAT) / 2) < 1,
-    `expected centre, got ${out.target}`,
-  );
-  const arrived = decide({ music: true, x: out.target });
-  assert.equal(arrived.bob, true, "cat should bob once it has arrived");
+test("rung 4: music makes the cat dance where it already is", () => {
+  // It used to walk to the centre of the bar to dance, which is exactly where
+  // most people's clock sits.
+  for (const x of [80, 400, BAR - CAT]) {
+    const out = decide({ music: true, x });
+    assert.equal(out.reason, "music");
+    assert.equal(out.target, x, "music should not relocate the cat");
+    assert.equal(out.gait, "idle");
+    assert.equal(out.bob, true, "and it should be dancing immediately");
+  }
 });
 
-test("rung 5: music is ignored when its reaction is switched off", () => {
+test("rung 4: music is ignored when its reaction is switched off", () => {
   const out = decide({
     music: true,
     config: { ...input().config, reactions: { music: false, charging: true, workspace: true } },
@@ -638,4 +647,81 @@ test("the sleeping cat reports that it needs no ticks", () => {
 
   const busy = decide({ pointer: { onBar: true, pos: 900 }, x: 100 });
   assert.equal(busy.idle, false);
+});
+
+
+// ------------------------------------------------- keeping clear of the clock
+
+test("spots the cat picks for itself avoid the middle of the bar", () => {
+  // Omarchy centres the clock, so the middle is the one place reliably
+  // occupied on nearly every setup.
+  let state = Brain.freshState();
+  const picks = [];
+  for (let i = 0; i < 400; i++) {
+    picks.push(Brain.pickSpot(state, BAR - CAT, BAR, 0.2));
+  }
+  const offenders = picks.filter((x) => inCentre(x));
+  assert.equal(offenders.length, 0, `${offenders.length} picks landed on the clock`);
+  // ...and it still uses both sides, rather than hugging one end.
+  assert.ok(picks.some((x) => x < middle()), "should use the left of the bar");
+  assert.ok(picks.some((x) => x > middle()), "should use the right of the bar");
+  assert.ok(picks.every((x) => x >= 0 && x <= BAR - CAT), "and stay on the bar");
+});
+
+test("wandering keeps clear of the middle", () => {
+  const config = { ...input().config, avoidCenter: 0.2 };
+  let state = Brain.freshState();
+  for (let i = 0; i < 60; i++) {
+    // Arrive each time so the cat re-rolls a fresh target.
+    const out = Brain.decide(input({ x: state.wanderTarget ?? 0, config }), state);
+    state = out.state;
+    if (out.reason === "wander") {
+      assert.ok(!inCentre(out.target), `wander target ${out.target} sat on the clock`);
+    }
+  }
+});
+
+test("a stirring cat also keeps clear of the middle", () => {
+  const chainTotal = Brain.CHAIN.reduce(
+    (sum, s) => sum + (Number.isFinite(s.ms) ? s.ms : 0),
+    0,
+  );
+  const config = { ...input().config, avoidCenter: 0.2 };
+  let out = Brain.decide(input({ charging: true, x: 100, config }), Brain.freshState());
+  out = Brain.decide(
+    input({ charging: true, x: 100, now: 10_000 + chainTotal + 2000, config }),
+    out.state,
+  );
+  const stirred = Brain.decide(
+    input({
+      charging: true, x: 100, config,
+      now: 10_000 + chainTotal + 2000 + out.wakeIn + 10,
+    }),
+    out.state,
+  );
+  assert.equal(stirred.reason, "stir");
+  assert.ok(!inCentre(stirred.target), `stir target ${stirred.target} sat on the clock`);
+});
+
+test("avoidCenter: 0 lets the cat use the whole bar again", () => {
+  let state = Brain.freshState();
+  const picks = [];
+  for (let i = 0; i < 400; i++) picks.push(Brain.pickSpot(state, BAR - CAT, BAR, 0));
+  assert.ok(picks.some((x) => inCentre(x)), "with avoidance off the middle is fair game");
+});
+
+test("chasing the pointer still goes to the middle if that is where you point", () => {
+  // The keep-clear rule governs where the cat chooses to stop, not where you
+  // send it. A cat that refused to come to the middle would just look broken.
+  const out = decide({ pointer: { onBar: true, pos: BAR / 2 }, x: 100 });
+  assert.equal(out.reason, "chase");
+  assert.ok(inCentre(out.target), "the cat must still come when called to the centre");
+});
+
+test("a bar with no room outside the middle still yields a valid spot", () => {
+  let state = Brain.freshState();
+  for (const [maxX, len] of [[4, 20], [0, 16], [40, 56]]) {
+    const x = Brain.pickSpot(state, maxX, len, 0.9);
+    assert.ok(x >= 0 && x <= Math.max(0, maxX) && Number.isFinite(x), `got ${x}`);
+  }
 });

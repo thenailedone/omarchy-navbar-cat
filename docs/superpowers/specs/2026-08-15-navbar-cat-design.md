@@ -106,7 +106,7 @@ Priority ladder, first match wins:
 | 1 | Recently petted | Sit and purr, hold position |
 | 2 | Pointer over the bar | Run to it, then sit and wait |
 | 3 | Workspace switched | Scamper in the switch direction |
-| 4 | Music playing | Drift to centre, bob (moved above charging) |
+| 4 | Music playing | Dance on the spot (moved above charging) |
 | 5 | On AC power | Get drowsy and curl up where it stands (revised) |
 | 6 | No pointer movement for `sleepAfter` | Sleep in place |
 | 7 | Nothing | Wander with pauses |
@@ -263,6 +263,29 @@ Worth noting the original test suite *asserted the bug* — "charging outranks
 music" was written as if it were intended behaviour. Tests lock in whatever
 the author believed at the time; they do not tell you the belief was wrong.
 Only running it on a real machine did that.
+
+## Fifth round — dance in place, and keep off the clock
+
+Two related corrections, both about the cat assuming the middle of the bar was
+free real estate.
+
+The music reaction walked the cat to the centre to dance. The centre is where
+Omarchy puts the clock by default, so the one reaction that reliably drew the
+eye also reliably parked the cat on top of the time. It now dances wherever it
+already is.
+
+More generally, every spot the cat picks *for itself* — wander targets, stir
+targets, and its position at startup — now avoids the middle `avoidCenter`
+fraction of the bar, default 0.2. Three rules keep this from feeling like a
+wall: the cat still walks through the middle, it still goes to the middle when
+the pointer calls it there, and `avoidCenter: 0` turns it off for anyone whose
+clock is not centred. This remains a guess about layout rather than knowledge
+of it — nothing exposes widget geometry.
+
+While wiring this up: the brain's generator was seeded with a constant, which
+is what makes the wander tests reproducible but also meant every session
+started the cat in the same place and sent it on the same route. The QML now
+seeds it from the clock; the tests still pass their own seed.
 
 ## Out of scope
 

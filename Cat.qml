@@ -77,6 +77,11 @@ Item {
   }
 
   readonly property bool pounce: config.pounce !== false
+  // Fraction of the bar to keep clear when the cat picks its own spot. Omarchy
+  // centres the clock, so the middle is the one place reliably occupied.
+  readonly property real avoidCenter: config.avoidCenter !== undefined
+    ? Math.max(0, Math.min(0.9, Number(config.avoidCenter)))
+    : 0.2
   readonly property int stirEvery: Number(config.stirEvery) > 0 ? Number(config.stirEvery) : 150
   readonly property int stirFor: Number(config.stirFor) > 0 ? Number(config.stirFor) : 25
 
@@ -177,7 +182,11 @@ Item {
   // Which way is "into the screen" from the bar's edge.
   readonly property int inwardSign: (barPosition === "top" || barPosition === "left") ? 1 : -1
   property int animTick: 0
-  property var brainState: Brain.freshState()
+  // Seeded from the clock so the cat does not live the same day twice. The
+  // brain's generator is deterministic by design — that is what makes the
+  // wander tests reproducible — but a fixed seed would mean every session
+  // started in the same spot and wandered the same route.
+  property var brainState: Brain.freshState(Date.now() % 2147483647)
 
   readonly property bool maskActive: catSettled && root.pettable && !root.barHidden
 
@@ -280,7 +289,7 @@ Item {
     // same left-hand corner.
     if (!_placed) {
       _placed = true
-      catPos = Math.random() * maxPos
+      catPos = Brain.pickSpot(brainState, maxPos, barLength, avoidCenter)
     }
 
     var decision = Brain.decide({
@@ -301,6 +310,7 @@ Item {
         pettable: pettable,
         sleepAfter: sleepAfter,
         pounce: pounce,
+        avoidCenter: avoidCenter,
         stirEvery: stirEvery,
         stirFor: stirFor,
         reactions: reactions,
