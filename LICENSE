@@ -22,6 +22,21 @@ SOFTWARE.
 
 ---
 
-The cat sprites in assets/ and vendor/oneko/ are NOT covered by the above.
-They are the public-domain `neko` artwork from oneko by Masayuki Koba.
-See vendor/oneko/PROVENANCE.md.
+EXTERNAL DEPENDENCIES AND BUNDLED CONTENT
+
+Sprites — the artwork in assets/ and vendor/oneko/ is NOT covered by the MIT
+licence above. It is the public-domain `neko`, `tora`, and `dog` artwork from
+oneko 1.2.sakura.5 by Masayuki Koba, modified by Tatsuya Kato, redistributed
+under the Public Domain declaration of that package. The oneko sets whose
+rights are reserved (bsd, sakura, tomoyo) are NOT included here. Full source,
+checksum, and reasoning: vendor/oneko/PROVENANCE.md.
+
+Runtime — this plugin requires only Omarchy 4 and python3, both already
+present on an Omarchy system. It bundles and runs one helper of its own,
+bin/navbar-cat-cursor, which reads the pointer position from the Hyprland IPC
+socket. It installs nothing, downloads nothing, requires no elevated
+privileges, and makes no network connections.
+
+Build tooling — tools/build-sprites.py requires Pillow, and is only needed to
+regenerate the spritesheets. The generated sheets are committed, so no build
+step is involved in installing or running the plugin.

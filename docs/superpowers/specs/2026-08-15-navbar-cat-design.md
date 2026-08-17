@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-15
 **Status:** approved, implementing
-**Plugin id:** `sam.navbar-cat`
+**Plugin id:** `io.github.tallsam.navbar-cat`
 
 ## What it is
 
@@ -135,7 +135,7 @@ and the cat stops reading as a cat. Sheet choice is by device pixel ratio:
 Inline on the `plugins[]` entry in `~/.config/omarchy/shell.json`:
 
 ```json
-{ "id": "sam.navbar-cat", "character": "neko", "speed": 1.0, "size": 16,
+{ "id": "io.github.tallsam.navbar-cat", "character": "neko", "speed": 1.0, "size": 16,
   "pettable": true, "chaseCursor": true, "pounce": true,
   "sleepAfter": 180, "stirEvery": 150, "stirFor": 25, "monitor": "focused",
   "reactions": { "music": true, "charging": true, "workspace": true } }

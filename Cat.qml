@@ -29,7 +29,7 @@ Item {
   property var manifest: null
   property string omarchyPath: ""
 
-  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "sam.navbar-cat"
+  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "io.github.tallsam.navbar-cat"
   readonly property string assetDir: {
     var dir = manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
     if (dir === "") return ""

@@ -8,11 +8,7 @@ your theme's colours, and can be petted. The sprites are the original
 alone, it sits, washes its face, scratches its head, yawns, and only then falls
 asleep.
 
-```
-┌──────────────────────────────────────────────────────┐
-│ ▣  1 2 3        🐈→          12:04       ▮ ⏻ │
-└──────────────────────────────────────────────────────┘
-```
+![Navbar Cat](preview.png)
 
 ## What it does
 
@@ -43,17 +39,42 @@ Three sprite sets ship, all from oneko and all with the same 32 frames:
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<you>/omarchy-navbar-cat.git --enable --yes
+omarchy plugin add https://github.com/tallsam/omarchy-navbar-cat.git --enable --yes
 ```
 
 Or by hand:
 
 ```bash
-git clone https://github.com/<you>/omarchy-navbar-cat.git \
-  ~/.config/omarchy/plugins/sam.navbar-cat
+git clone https://github.com/tallsam/omarchy-navbar-cat.git \
+  ~/.config/omarchy/plugins/io.github.tallsam.navbar-cat
 omarchy-shell shell rescanPlugins
-omarchy plugin enable sam.navbar-cat
+omarchy plugin enable io.github.tallsam.navbar-cat
 ```
+
+### Requirements
+
+Omarchy 4 (Quattro) or newer, and `python3` — which Omarchy already installs.
+Nothing else: no system packages, no build step, no network access, and nothing
+outside the plugin's own directory.
+
+### Removal
+
+```bash
+omarchy plugin remove io.github.tallsam.navbar-cat
+```
+
+Or by hand:
+
+```bash
+omarchy plugin disable io.github.tallsam.navbar-cat
+rm -rf ~/.config/omarchy/plugins/io.github.tallsam.navbar-cat
+omarchy-shell shell rescanPlugins
+```
+
+Disabling removes the plugin's entry from `~/.config/omarchy/shell.json`, which
+takes your settings with it. The cat leaves nothing else behind: it writes no
+files, no state, and no config of its own, and its helper process exits with
+the shell.
 
 ## Configuration
 
@@ -63,7 +84,7 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
 {
   "plugins": [
     {
-      "id": "sam.navbar-cat",
+      "id": "io.github.tallsam.navbar-cat",
       "character": "neko",
       "speed": 1.0,
       "size": 16,
@@ -127,6 +148,7 @@ timer, and the pointer sampler slows down to match.
 | `Brain.js` | All the behaviour, as a pure function — the tested part |
 | `bin/navbar-cat-cursor` | Pointer sampler |
 | `tools/build-sprites.py` | XBM → spritesheets (only needed to change the art) |
+| `tools/build-preview.py` | Renders `preview.png` from the shipped sheets |
 
 `Brain.js` takes a snapshot of the world and returns what the cat should be
 doing. It holds no QML and reads no clock of its own, so the whole priority

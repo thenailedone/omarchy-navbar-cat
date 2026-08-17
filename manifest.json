@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "sam.navbar-cat",
+  "id": "io.github.tallsam.navbar-cat",
   "name": "Navbar Cat",
   "version": "1.0.0",
-  "author": "sam",
+  "author": "tallsam",
   "license": "MIT",
   "description": "A cat that walks along the bar, reacts to what you are doing, and can be petted",
   "kinds": ["panel"],
