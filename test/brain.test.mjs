@@ -158,9 +158,31 @@ test("rung 4: charging makes the cat sleepy where it stands", () => {
   }
 });
 
-test("rung 4: charging outranks music", () => {
+test("music outranks charging, so mains power cannot silence it", () => {
+  // Regression: charging used to come first. Because charging is a sleepy rung
+  // that returns immediately, a laptop on mains power — which is most laptops,
+  // most of the time — made the music reaction unreachable entirely.
   const out = decide({ charging: true, music: true, x: 100 });
-  assert.equal(out.reason, "charging");
+  assert.equal(out.reason, "music");
+
+  // Charging still wins when there is nothing playing.
+  const quiet = decide({ charging: true, music: false, x: 100 });
+  assert.equal(quiet.reason, "charging");
+});
+
+test("waking reactions all beat charging", () => {
+  // The general rule the bug above violated: anything that means the cat
+  // should be up and doing something outranks anything that puts it to sleep.
+  const cases = [
+    [{ pettedAt: 9_500 }, "petted"],
+    [{ pointer: { onBar: true, pos: 300 } }, "chase"],
+    [{ workspaceEvent: { at: 9_800, dir: 1 } }, "workspace"],
+    [{ music: true }, "music"],
+  ];
+  for (const [extra, expected] of cases) {
+    const out = decide({ charging: true, x: 100, ...extra });
+    assert.equal(out.reason, expected, `${expected} should beat charging`);
+  }
 });
 
 test("rung 4: a charging cat eventually naps, right where it was", () => {

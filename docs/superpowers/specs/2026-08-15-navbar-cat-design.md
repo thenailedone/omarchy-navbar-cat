@@ -106,8 +106,8 @@ Priority ladder, first match wins:
 | 1 | Recently petted | Sit and purr, hold position |
 | 2 | Pointer over the bar | Run to it, then sit and wait |
 | 3 | Workspace switched | Scamper in the switch direction |
-| 4 | On AC power | Get drowsy and curl up where it stands (revised) |
-| 5 | Music playing | Drift to centre, bob |
+| 4 | Music playing | Drift to centre, bob (moved above charging) |
+| 5 | On AC power | Get drowsy and curl up where it stands (revised) |
 | 6 | No pointer movement for `sleepAfter` | Sleep in place |
 | 7 | Nothing | Wander with pauses |
 
@@ -243,6 +243,26 @@ every session.
 
 This removes the last of the section-aiming fudge from the sleep behaviours.
 Only the music reaction still aims at a position (the middle of the bar).
+
+## Fourth round — music was unreachable on mains power
+
+Reported from use: music was playing in a browser and the cat ignored it.
+
+MPRIS was fine — Brave was publishing `PlaybackStatus = "Playing"` on the
+session bus. The fault was the ladder. Charging sat at rung 4 and music at
+rung 5, and charging is a *sleepy* rung that returns immediately. So on any
+machine running on mains power — which for a laptop on a desk is all of the
+time — rung 5 was never evaluated and the music reaction was dead code.
+
+Music now sits above charging, and the general rule is written down: a rung
+that wakes the cat outranks a rung that puts it to sleep. There is a test
+asserting each of petted / chase / workspace / music beats charging, so the
+next rung added below charging cannot quietly disappear the same way.
+
+Worth noting the original test suite *asserted the bug* — "charging outranks
+music" was written as if it were intended behaviour. Tests lock in whatever
+the author believed at the time; they do not tell you the belief was wrong.
+Only running it on a real machine did that.
 
 ## Out of scope
 

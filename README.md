@@ -26,6 +26,17 @@ asleep.
 It walks the long way round on vertical bars too, and claws at the ends of the
 bar when it wants to keep going and can't.
 
+Those reactions are a priority order, not a list — the first one that applies
+wins. Anything that wakes the cat beats anything that puts it to sleep:
+
+```
+petted  >  pointer  >  workspace  >  music  >  charging  >  idle  >  wander
+└──────────── awake ────────────┘   └───── asleep ─────┘
+```
+
+So music still gets the cat bobbing while you are on mains power, but moving
+your pointer to the bar interrupts it — the cat would rather come to you.
+
 ## Characters
 
 Three sprite sets ship, all from oneko and all with the same 32 frames:

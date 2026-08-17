@@ -171,7 +171,24 @@ function intent(input, state) {
     return { reason: "stir", target: state.wanderTarget, gait: "walk", rest: "chain" }
   }
 
-  // 4. On AC power — get drowsy, and sleep wherever it happens to be.
+  // 4. Something is playing — drift to the centre and bob.
+  //
+  //    This sits above the charging rung, and the ordering matters more than it
+  //    looks. Charging is a *sleepy* rung: it returns and the cat nods off. Put
+  //    it first and it silences every waking reaction below it, which on a
+  //    laptop that lives on mains power is all of the time — the music reaction
+  //    became literally unreachable. Waking behaviour beats sleeping behaviour.
+  if (reactions.music !== false && input.music) {
+    return {
+      reason: "music",
+      target: maxX / 2,
+      gait: "walk",
+      rest: "wait",
+      bob: true,
+    }
+  }
+
+  // 5. On AC power — get drowsy, and sleep wherever it happens to be.
   //
   //    This used to march the cat to the right third of the bar, on the theory
   //    that it was napping by the power widget. In practice it meant the cat
@@ -185,17 +202,6 @@ function intent(input, state) {
       gait: "idle",
       rest: "chain",
       sleepy: true,
-    }
-  }
-
-  // 5. Something is playing — drift to the centre and bob.
-  if (reactions.music !== false && input.music) {
-    return {
-      reason: "music",
-      target: maxX / 2,
-      gait: "walk",
-      rest: "wait",
-      bob: true,
     }
   }
 
