@@ -424,10 +424,24 @@ function decide(input, state) {
   var toLane = laneFor(lanes, target)
   var crossing = state.crossingStartedAt !== null && state.crossingStartedAt !== undefined
   if (!crossing && moving && fromLane >= 0 && toLane >= 0 && fromLane !== toLane) {
-    state.crossingStartedAt = now
-    state.crossingFrom = input.x
-    state.crossingTo = target
-    crossing = true
+    var crossingDir = toLane > fromLane ? 1 : -1
+    var departure = crossingDir > 0 ? lanes[fromLane].high : lanes[fromLane].low
+    var arrival = crossingDir > 0 ? lanes[toLane].low : lanes[toLane].high
+
+    // Reaching another lane is a three-part journey: run to the clock, leap
+    // across only its reserved band, then continue toward the requested spot.
+    // Starting the timed (snap-positioned) leap from wherever the cat happened
+    // to be made a distant cursor look as though it teleported the cat.
+    if (Math.abs(input.x - departure) > ARRIVE_EPS) {
+      target = departure
+      delta = target - input.x
+      moving = want.gait !== "idle" && Math.abs(delta) > ARRIVE_EPS
+    } else {
+      state.crossingStartedAt = now
+      state.crossingFrom = departure
+      state.crossingTo = arrival
+      crossing = true
+    }
   }
   if (crossing) {
     var crossingProgress = (now - state.crossingStartedAt) / CROSSING_MS

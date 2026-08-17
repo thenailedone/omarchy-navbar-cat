@@ -833,17 +833,25 @@ test("cursor chasing stops short of edge and centre widgets", () => {
   assert.equal(atRightIcons.target, 804);
 });
 
-test("changing safe lanes leaps over the centre reservation", () => {
+test("changing safe lanes runs to the centre before leaping over it", () => {
   const config = {
     ...input().config, avoidWidgets: true, avoidCenter: 0.2, avoidEdges: 0.18,
   };
   let out = decide({ x: 250, pointer: { onBar: true, pos: 750 }, config });
+  assert.equal(out.reason, "chase");
+  assert.equal(out.target, 384, "should first run to the near edge of the clock");
+  assert.equal(out.snap, false);
+
+  out = Brain.decide(input({
+    now: 10_100, x: 384, pointer: { onBar: true, pos: 750 }, config,
+  }), out.state);
   assert.equal(out.reason, "crossing");
+  assert.equal(out.target, 384);
   assert.equal(out.snap, true);
   assert.equal(out.lift, 0);
 
   out = Brain.decide(input({
-    now: 10_000 + Brain.CROSSING_MS / 2,
+    now: 10_100 + Brain.CROSSING_MS / 2,
     x: out.target, pointer: { onBar: true, pos: 750 }, config,
   }), out.state);
   assert.equal(out.reason, "crossing");
@@ -851,12 +859,19 @@ test("changing safe lanes leaps over the centre reservation", () => {
   assert.ok(inCentre(out.target), "the horizontal crossing should pass the clock while lifted");
 
   out = Brain.decide(input({
-    now: 10_000 + Brain.CROSSING_MS + 1,
+    now: 10_100 + Brain.CROSSING_MS + 1,
     x: out.target, pointer: { onBar: true, pos: 750 }, config,
   }), out.state);
   assert.equal(out.reason, "crossing");
-  assert.equal(out.target, 742);
+  assert.equal(out.target, 600, "the leap should land at the far edge of the clock");
   assert.equal(out.lift, 0);
+
+  out = Brain.decide(input({
+    now: 11_000, x: out.target, pointer: { onBar: true, pos: 750 }, config,
+  }), out.state);
+  assert.equal(out.reason, "chase");
+  assert.equal(out.target, 742, "after landing it should resume running to the cursor");
+  assert.equal(out.snap, false);
 });
 
 test("avoidWidgets false restores full-width movement", () => {
