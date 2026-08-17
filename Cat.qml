@@ -469,12 +469,7 @@ Item {
     // Click-through everywhere the cat is not. While it is walking the region
     // is empty, so a moving cat can never swallow a click meant for the bar;
     // it only becomes clickable once it has settled somewhere.
-    mask: Region {
-      x: root.maskActive ? Math.round(sprite.x) : 0
-      y: root.maskActive ? Math.round(sprite.y) : 0
-      width: root.maskActive ? sprite.width : 0
-      height: root.maskActive ? sprite.height : 0
-    }
+    mask: Region { item: interactionTarget }
 
     CatSprite {
       id: sprite
@@ -501,14 +496,34 @@ Item {
       // A cat listening to music bobs; everything else sits still.
       property int bobOffset: root.catBob ? ((root.animTick & 1) ? -1 : 0) : 0
 
+    }
+
+    // A 16px sprite is unnecessarily difficult to hit precisely. Use an
+    // item-backed input region (the same reliable pattern as Omarchy's own
+    // overlays) spanning the bar depth and 28px along it. It only exists while
+    // the cat is settled, so a moving cat remains completely click-through.
+    Item {
+      id: interactionTarget
+      visible: root.maskActive
+      width: root.maskActive ? (root.vertical ? root.barSize : Math.max(28, root.catSize)) : 0
+      height: root.maskActive ? (root.vertical ? Math.max(28, root.catSize) : root.barSize) : 0
+      x: root.vertical
+        ? Math.round(window.stripCentre - width / 2)
+        : Math.round(Math.max(0, Math.min(window.width - width,
+            root.catPos + root.catSize / 2 - width / 2)))
+      y: root.vertical
+        ? Math.round(Math.max(0, Math.min(window.height - height,
+            root.catPos + root.catSize / 2 - height / 2)))
+        : Math.round(window.stripCentre - height / 2)
+      z: 2
+
       MouseArea {
         anchors.fill: parent
-        enabled: root.maskActive
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        cursorShape: Qt.PointingHandCursor
         onClicked: function(mouse) {
-          if (mouse.button === Qt.RightButton) {
-            root.cycleCharacter()
-          } else {
+          if (mouse.button === Qt.RightButton) root.cycleCharacter()
+          else {
             root.pettedAt = Date.now()
             root.nudge()
           }

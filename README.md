@@ -144,7 +144,9 @@ Settings go inline on the plugin's entry in `~/.config/omarchy/shell.json`:
 | `reactions` | all on | Individually disable notification, music, charging, or workspace reactions |
 
 Right-click a settled character to cycle between `neko`, `tora`, and `dog`.
-The selection is saved in `shell.json`. Left-click still pets it.
+The selection is saved in `shell.json`. Left-click still pets it. The clickable
+area is slightly larger than the sprite and uses the full depth of the bar, so
+you do not need pixel-perfect aim.
 
 ### About the pounce
 
